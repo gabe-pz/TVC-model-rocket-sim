@@ -4,51 +4,51 @@
 #define _USE_MATH_DEFINES
 #include <cmath> 
 
-int magnitude_thrust_array = 14;
+int g_magnitudeThrustVector= 14;
 
-//rocket properties
+//rocket properties, in SI units
 double mass = 1.01074445935;
 double gravity = 9.81;
-double center_of_pressure = 0.08775954;
-double center_of_gravity = 0.4059174;
-double distance_to_thrust_array = 6477;
+double centerOfPressure = 0.08775954;
+double centerOfGravity = 0.4059174;
+double distanceToThrustVector = 6477;
 
-double I_xx = 0.0249899588;
-double I_yy = 0.0249868814;
+double Ixx = 0.0249899588;
+double Iyy = 0.0249868814;
 
 
 double dt = 0.00001; 
-int sim_time = 3;
+int simTime = 5;
 
-std::array<double, 3> force_thrust_rf(double gimbal_angle_x, double gimbal_angle_y, double t);
-std::array<double, 4> vector_pure_q(const std::array<double, 3>& vec);
-std::array<double, 4> multiply_q_p(const std::array<double, 4>& q, const std::array<double, 4>& p); 
-std::array<double, 4> conjugate_q(const std::array<double, 4>&q);
-std::array<double, 3> rotate_rf_wf(const std::array<double, 4>& state_quaternion, const std::array<double, 3>& vector_rf); 
-double degrees_to_rads(double angle_degrees);
+std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t);
+std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec);
+std::array<double, 4> multiplyQP(const std::array<double, 4>& q, const std::array<double, 4>& p); 
+std::array<double, 4> conjugateQuaternion(const std::array<double, 4>&q);
+std::array<double, 3> rotateRfToWf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorRf); 
+double degreesToRads(double angleDegrees);
 
 int main(void){     
-    double init_gimbal_angle_x_degrees = 2;
-    double init_gimbal_angle_y_degrees = 3; 
+    double initalGimbalAngleX = 2;
+    double initalGimbalAngleY = 3; 
 
 
     //quaterion initaliztion
-    std::array<double, 4> state_q = {1.0, 0.0, 0.0, 0.0};
+    std::array<double, 4> stateQ = {1.0, 0.0, 0.0, 0.0};
 
     //vector initalization
-    std::array<double, 3> thrust_rf = {0.0, 0.0, 0.0};
-    std::array<double, 3> thrust_wf = {0.0, 0.0, 0.0};
-    std::array<double, 3> sum_forces_wf = {0.0, 0.0, 0.0};
+    std::array<double, 3> thrustRf = {0.0, 0.0, 0.0};
+    std::array<double, 3> thrustWf = {0.0, 0.0, 0.0};
+    std::array<double, 3> sumOfForcesWf = {0.0, 0.0, 0.0};
 
-    for(int i = 0; i < sim_time/dt; i++){
+    for(int i = 0; i < simTime/dt; i++){
         double t = i * dt; 
 
-        thrust_rf = force_thrust_rf(degrees_to_rads(init_gimbal_angle_x_degrees), degrees_to_rads(init_gimbal_angle_y_degrees), t);
-        thrust_wf = rotate_rf_wf(state_q, thrust_rf); 
+        thrustRf = forceThrustRf(degreesToRads(initalGimbalAngleX), degreesToRads(initalGimbalAngleY), t);
+        thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
-        sum_forces_wf = {thrust_wf.at(0), thrust_wf.at(1), thrust_wf.at(2)-mass*gravity}; 
+        sumOfForcesWf = {thrustWf[0], thrustWf[1], thrustWf[2]-mass*gravity}; 
 
-        std::cout << "F_x = " << sum_forces_wf[0] << std::endl;
+        std::cout << "F_x = " << sumOfForcesWf[0] << std::endl;
         
     }
 
@@ -58,49 +58,49 @@ int main(void){
 }
 
 
-std::array<double, 3> force_thrust_rf(double gimbal_angle_x, double gimbal_angle_y, double t){
+std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t){
 
     if(t > 3){
-        std::array<double, 3> force_thrust_array_rf = {0.0, 0.0, 0.0}; 
-        return force_thrust_array_rf;
+        std::array<double, 3> forceThrustVectorRf = {0.0, 0.0, 0.0}; 
+        return forceThrustVectorRf;
     }
     
     else {
-        std::array<double, 3> force_thrust_array_rf = {magnitude_thrust_array*std::sin(gimbal_angle_y), magnitude_thrust_array*std::sin(gimbal_angle_x), magnitude_thrust_array*std::cos(gimbal_angle_y)*std::cos(gimbal_angle_x)};   
-        return force_thrust_array_rf;
+        std::array<double, 3> forceThrustVectorRf = {g_magnitudeThrustVector*std::sin(gimbalAngleY), g_magnitudeThrustVector*std::sin(gimbalAngleX), g_magnitudeThrustVector*std::cos(gimbalAngleY)*std::cos(gimbalAngleX)};   
+        return forceThrustVectorRf;
     }
 }
-std::array<double, 4> vector_pure_q(const std::array<double, 3>& vec){
-    std::array<double, 4> vec_q = {0.0, vec[0], vec[1], vec[2]} ;
+std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec){
+    std::array<double, 4> vecToQuaternion = {0.0, vec[0], vec[1], vec[2]} ;
 
-    return vec_q;
+    return vecToQuaternion;
 }
-std::array<double, 4> multiply_q_p(const std::array<double, 4>& q, const std::array<double, 4>& p){
-    double q_p_0 = q[0]*p[0] - q[1]*p[1] - q[2]*p[2] - q[3]*p[3];
-    double q_p_1 = q[0]*p[1] + q[1]*p[0] + q[2]*p[3] - q[3]*p[2];
-    double q_p_2 = q[0]*p[2] - q[1]*p[3] + q[2]*p[0] + q[3]*p[1];
-    double q_p_3 = q[0]*p[3] + q[1]*p[2] - q[2]*p[1] + q[3]*p[0];
+std::array<double, 4> multiplyQP(const std::array<double, 4>& q, const std::array<double, 4>& p){
+    double qP0 = q[0]*p[0] - q[1]*p[1] - q[2]*p[2] - q[3]*p[3];
+    double qP1 = q[0]*p[1] + q[1]*p[0] + q[2]*p[3] - q[3]*p[2];
+    double qP2 = q[0]*p[2] - q[1]*p[3] + q[2]*p[0] + q[3]*p[1];
+    double qP3 = q[0]*p[3] + q[1]*p[2] - q[2]*p[1] + q[3]*p[0];
     
     
-    std::array<double, 4> q_times_p = {q_p_0, q_p_1, q_p_2, q_p_3};
+    std::array<double, 4> QP = {qP0, qP1, qP2, qP3};
 
-    return q_times_p; 
+    return QP; 
 }
-std::array<double, 4> conjugate_q(const std::array<double, 4>&q){
-    std::array<double, 4> q_star = {q[0], -q[1], -q[2], -q[3]};
+std::array<double, 4> conjugateQuaternion(const std::array<double, 4>&q){
+    std::array<double, 4> qStar = {q[0], -q[1], -q[2], -q[3]};
 
-    return q_star;
+    return qStar;
 }
-std::array<double, 3> rotate_rf_wf(const std::array<double, 4>& state_quaternion, const std::array<double, 3>& vector_rf){
-    std::array<double, 4> array_rf_q = vector_pure_q(vector_rf);
-    std::array<double, 4> q_1 = multiply_q_p(state_quaternion, array_rf_q);
-    std::array<double, 4> conjugate_state_q = conjugate_q(state_quaternion); 
-    std::array<double, 4> vector_wf_q = multiply_q_p(q_1, conjugate_state_q);
+std::array<double, 3> rotateRfToWf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorRf){
+    std::array<double, 4> vectorRfToQ = vectorToPureQuaternion(vectorRf);
+    std::array<double, 4> q1 = multiplyQP(stateQuaternion, vectorRfToQ);
+    std::array<double, 4> conjugateStateQuaternion = conjugateQuaternion(stateQuaternion); 
+    std::array<double, 4> vectorWfQ = multiplyQP(q1, conjugateStateQuaternion);
     
-    std::array<double, 3> vector_wf = {vector_wf_q.at(1), vector_wf_q.at(2), vector_wf_q.at(3)}; 
+    std::array<double, 3> vectorWf = {vectorWfQ[1], vectorWfQ[2], vectorWfQ[3]}; 
 
-    return vector_wf;
+    return vectorWf;
 }
-double degrees_to_rads(double angle_degrees){
-    return (angle_degrees * (M_PI/180.0));
+double degreesToRads(double angleDegrees){
+    return (angleDegrees * (M_PI/180.0));
 }
