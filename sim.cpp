@@ -62,7 +62,7 @@ int main(void){
     std::array<double, 2> psi = {0.0, 0.0};
     
     //moment arm
-    std::array<double, 3> r_hat = {0.0, 0.0, distanceToThrustVector};
+    std::array<double, 3> r = {0.0, 0.0, centerOfGravity-distanceToThrustVector};
 
     //physics sim
     for(int i = 0; i < simTime/dt; i++){
@@ -92,7 +92,7 @@ int main(void){
 
 
         //compute torques   
-        torqueThrust = crossProduct(r_hat, thrustRf);
+        torqueThrust = crossProduct(r, thrustRf);
 
 
         //compute angular accleration
