@@ -3,6 +3,7 @@
 #include <numbers>
 #define _USE_MATH_DEFINES
 #include <cmath> 
+#include <raylib.h> 
 
 
 std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t, double magnitudeThrustVector);
@@ -18,7 +19,7 @@ double degreesToRads(double angleDegrees);
 int main(void){     
     //rocket properties, in SI units
     const double magnitudeThrustVector= 14.44;
-    const double centerOfPressure = 0.0877;
+    //const double centerOfPressure = 0.0877;
     const double distanceToThrustVector = 0.6477;
 
     double centerOfGravity = 0.405;
@@ -28,7 +29,7 @@ int main(void){
     long double Iyy = 0.0249868814;
 
     //physical constants
-    const double gravity = 1.625;
+    const double gravity = 9.81;
 
     //simulation constants
     double dt = 0.00001; 
@@ -36,7 +37,8 @@ int main(void){
 
     //gimbal angle initalization
     double gimbalAngleX = 0.1;
-    double gimbalAngleY = -0.12; 
+    double gimbalAngleY = 0.0; 
+
 
     //quaterion initaliztion
     std::array<double, 4> stateQ = {1.0, 0.0, 0.0, 0.0};
