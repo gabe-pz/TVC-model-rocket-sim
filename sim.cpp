@@ -1,7 +1,5 @@
 #include <iostream> 
 #include <array>
-#include <numbers>
-#define _USE_MATH_DEFINES
 #include <cmath> 
 #include <raylib.h> 
 #include <rlgl.h> 
@@ -13,8 +11,8 @@ std::array<double, 4> conjugateQuaternion(const std::array<double, 4>&q);
 std::array<double, 3> rotateRfToWf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorRf); 
 std::array<double, 3> crossProduct(const std::array<double, 3>& a, const std::array<double, 3>& b);
 std::array<double, 2> quaternionToEuler(const std::array<double, 4>& stateQuaternion);
+void quatToMat(const std::array<double,4>& q, float m[16]);
 void normalizeQuaternion(std::array<double, 4>& q); 
-double degreesToRads(double angleDegrees);
 
 int main(void){     
     //rocket properties, in SI units
@@ -36,8 +34,8 @@ int main(void){
     int simTime = 15;
 
     //gimbal angle initalization
-    double gimbalAngleX = 1.0;
-    double gimbalAngleY = -1.0; 
+    double gimbalAngleX = 0.02;
+    double gimbalAngleY = 0.2; 
 
     //raylib initalization
     const int screenWidth  = 800;
@@ -58,7 +56,24 @@ int main(void){
     int FPS = 60;
     SetTargetFPS(FPS); 
     int iterationsPerFrame = (1/(dt*FPS)); 
- 
+    double t = 0.0;
+
+    //Raylib rocket Dimensions
+    float bodyRadius = 0.25f;
+    float bodyHeight = 2.5f;
+    float coneHeight = 0.7;
+    float coneTopRadius = 0.05f; 
+    float cgFrac = (distanceToThrustVector - centerOfGravity) / distanceToThrustVector;                             
+
+
+    //coordinate transformation matrix between raylib vecs and my own vecs
+    float cf[16] = {
+        1,0,0,0,
+        0,0,-1,0,
+        0,1,0,0,
+        0,0,0,1
+    };
+
     //quaterion initaliztion
     std::array<double, 4> stateQ = {1.0, 0.0, 0.0, 0.0};
     std::array<double, 4> stateQTimeDerivative = {1.0, 0.0, 0.0, 0.0};
@@ -85,8 +100,6 @@ int main(void){
     //moment arm
     std::array<double, 3> r = {0.0, 0.0, centerOfGravity-distanceToThrustVector};
 
-    //time keeper
-    double t = 0.0;
     // Main game loop
     while (!WindowShouldClose()){
 
@@ -96,7 +109,7 @@ int main(void){
                 t += dt;
 
                 //compute forces
-                thrustRf = forceThrustRf(degreesToRads(gimbalAngleX), degreesToRads(gimbalAngleY), t, magnitudeThrustVector);
+                thrustRf = forceThrustRf(gimbalAngleX*DEG2RAD, gimbalAngleY*DEG2RAD, t, magnitudeThrustVector);
                 thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
                 //sum forces
@@ -152,32 +165,64 @@ int main(void){
                 //compute euler angles
                 psi = quaternionToEuler(stateQ); 
 
-                if(position[2]+0.25 < 0 && t > 0.5){
+                if(position[2] < 0 && t > 0.5){
                     landed = true; 
                     break;
                 }
             }
         }
 
-        //Apply Update (Draws 60 times a second, whether moving or landed)
+        //rotation matrix creation
+        float rf[16];
+        quatToMat(stateQ, rf);
+
+        //Apply Update
         UpdateCamera(&camera, CAMERA_FREE);
+
+        //focus on vectorisZ
+        if (IsKeyPressed(KEY_Z)){
+            camera.target = (Vector3){position[0], position[2], -position[1]};
+        }
         
+
         BeginDrawing();
             ClearBackground(RAYWHITE);
             BeginMode3D(camera);
+
                 rlPushMatrix();
-                    rlTranslatef(position[0], position[2], position[1]);
-                    rlRotatef(psi[0], 1.0f, 0.0f, 0.0f);
-                    rlRotatef(psi[1], 0.0f, 0.0f, 1.0f);
-                    DrawCylinder((Vector3){ 0, 0, 0 }, 0.15f, 1.0f, 5.0f, 64, RED);
+
+                    //transform into raylibs coords and move into rocket frame to then get rotation
+                    rlMultMatrixf(cf);                                   
+                    rlTranslatef(position[0], position[1], position[2]); 
+                    rlMultMatrixf(rf);                                   
+
+                    //rotate rocket to be facing correct way
+                    rlRotatef(90.0f, 1.0f, 0.0f, 0.0f);                
+
+                    //shift cyclinder down, such that c.g is point rotate about. i.e make it the origin
+                    rlTranslatef(0.0f, -cgFrac * bodyHeight, 0.0f);
+                    
+                    //main rocket body
+                    DrawCylinder((Vector3){0,0,0}, bodyRadius, bodyRadius, bodyHeight, 64, BLUE);
+
+                    //nose cone
+                    rlPushMatrix();
+                        rlTranslatef(0.0f, bodyHeight, 0.0f);
+                        DrawCylinder((Vector3){0,0,0}, coneTopRadius, bodyRadius, coneHeight, 64, RED);
+                    rlPopMatrix();
+
                 rlPopMatrix();
+
                 DrawGrid(100, 1.0f);
+            
             EndMode3D();
             
-            DrawRectangle(10, 10, 320, 133, Fade(SKYBLUE, 0.5f));
-            DrawRectangleLines(10, 10, 320, 133, BLUE);
+            DrawRectangle(10, 10, 200, 90, Fade(SKYBLUE, 0.5f));
+            DrawRectangleLines(10, 10, 200, 90, BLUE);
             DrawText("Free camera default controls:", 20, 20, 10, BLACK);
             DrawText("- Mouse Wheel to Zoom in-out", 40, 40, 10, DARKGRAY);
+            DrawText("- WASD to move around", 40, 60, 10, DARKGRAY);
+            DrawText("- Press Z to focus on rocket", 40, 80, 10, DARKGRAY);
         EndDrawing();
     }
 
@@ -259,6 +304,15 @@ void normalizeQuaternion(std::array<double, 4>& q){
     q[2] = (q[2] / magnitude);
     q[3] = (q[3] / magnitude);
 }
-double degreesToRads(double angleDegrees){
-    return (angleDegrees * (M_PI/180.0));
+void quatToMat(const std::array<double,4>& q, float m[16]) {
+    double w=q[0], x=q[1], y=q[2], z=q[3];
+
+    double r00=1-2*(y*y+z*z), r01=2*(x*y-w*z),   r02=2*(x*z+w*y);
+    double r10=2*(x*y+w*z),   r11=1-2*(x*x+z*z), r12=2*(y*z-w*x);
+    double r20=2*(x*z-w*y),   r21=2*(y*z+w*x),   r22=1-2*(x*x+y*y);
+
+    m[0]=r00; m[1]=r10; m[2]=r20; m[3]=0;
+    m[4]=r01; m[5]=r11; m[6]=r21; m[7]=0;  
+    m[8]=r02; m[9]=r12; m[10]=r22;m[11]=0;
+    m[12]=0;  m[13]=0;  m[14]=0;  m[15]=1; 
 }
