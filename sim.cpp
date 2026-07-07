@@ -4,7 +4,7 @@
 #define _USE_MATH_DEFINES
 #include <cmath> 
 #include <raylib.h> 
-
+#include <rlgl.h> 
 
 std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t, double magnitudeThrustVector);
 std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec);
@@ -32,14 +32,33 @@ int main(void){
     const double gravity = 9.81;
 
     //simulation constants
-    double dt = 0.00001; 
+    double dt = 0.000001; 
     int simTime = 15;
 
     //gimbal angle initalization
-    double gimbalAngleX = 0.1;
-    double gimbalAngleY = 0.0; 
+    double gimbalAngleX = 1.0;
+    double gimbalAngleY = -1.0; 
 
+    //raylib initalization
+    const int screenWidth  = 800;
+    const int screenHeight = 450;
+    bool landed = false;
+    InitWindow(screenWidth, screenHeight, "tvc-model-rocket-sim");
 
+    //Define the camera to look into our 3d world
+    Camera3D camera = { 0 };
+    camera.position   = (Vector3){ 10.0f, 10.0f, 10.0f };  // Camera position
+    camera.target     = (Vector3){ 0.0f, 0.0f, 0.0f };     // Camera looking-at point
+    camera.up         = (Vector3){ 0.0f, 1.0f, 0.0f };     // Camera up vector
+    camera.fovy       = 45.0f;                             // Field-of-view Y
+    camera.projection = CAMERA_PERSPECTIVE;
+    DisableCursor();    
+
+    //raylib sync 
+    int FPS = 60;
+    SetTargetFPS(FPS); 
+    int iterationsPerFrame = (1/(dt*FPS)); 
+ 
     //quaterion initaliztion
     std::array<double, 4> stateQ = {1.0, 0.0, 0.0, 0.0};
     std::array<double, 4> stateQTimeDerivative = {1.0, 0.0, 0.0, 0.0};
@@ -66,71 +85,103 @@ int main(void){
     //moment arm
     std::array<double, 3> r = {0.0, 0.0, centerOfGravity-distanceToThrustVector};
 
-    //physics sim
-    for(int i = 0; i < simTime/dt; i++){
-        double t = i * dt; 
+    //time keeper
+    double t = 0.0;
+    // Main game loop
+    while (!WindowShouldClose()){
 
-        //compute forces
-        thrustRf = forceThrustRf(degreesToRads(gimbalAngleX), degreesToRads(gimbalAngleY), t, magnitudeThrustVector);
-        thrustWf = rotateRfToWf(stateQ, thrustRf); 
+        if(!landed){
+            //update loop
+            for(int i = 0; i < iterationsPerFrame; i++){
+                t += dt;
 
-        //sum forces
-        sumOfForcesWf = {thrustWf[0], thrustWf[1], thrustWf[2]-mass*gravity}; 
+                //compute forces
+                thrustRf = forceThrustRf(degreesToRads(gimbalAngleX), degreesToRads(gimbalAngleY), t, magnitudeThrustVector);
+                thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
-        //compute accleration
-        accleration[0] = (sumOfForcesWf[0] / mass);
-        accleration[1] = (sumOfForcesWf[1] / mass);
-        accleration[2] = (sumOfForcesWf[2] / mass);
+                //sum forces
+                sumOfForcesWf = {thrustWf[0], thrustWf[1], thrustWf[2]-mass*gravity}; 
 
-        //integrate accleration for velocity
-        velocity[0] += dt*accleration[0];
-        velocity[1] += dt*accleration[1];
-        velocity[2] += dt*accleration[2];
+                //compute accleration
+                accleration[0] = (sumOfForcesWf[0] / mass);
+                accleration[1] = (sumOfForcesWf[1] / mass);
+                accleration[2] = (sumOfForcesWf[2] / mass);
 
-        //integrate velocity for position 
-        position[0] += dt*velocity[0];
-        position[1] += dt*velocity[1];
-        position[2] += dt*velocity[2]; 
+                //integrate accleration for velocity
+                velocity[0] += dt*accleration[0];
+                velocity[1] += dt*accleration[1];
+                velocity[2] += dt*accleration[2];
+
+                //integrate velocity for position 
+                position[0] += dt*velocity[0];
+                position[1] += dt*velocity[1];
+                position[2] += dt*velocity[2]; 
 
 
-        //compute torques   
-        torqueThrust = crossProduct(r, thrustRf);
+                //compute torques   
+                torqueThrust = crossProduct(r, thrustRf);
 
 
-        //compute angular accleration
-        angularAccleration[0] = (torqueThrust[0] / Ixx);
-        angularAccleration[1] = (torqueThrust[1] / Iyy);
+                //compute angular accleration
+                angularAccleration[0] = (torqueThrust[0] / Ixx);
+                angularAccleration[1] = (torqueThrust[1] / Iyy);
 
-        //integrate angular accleration for angular velocity 
-        angularVelocity[0] += dt*angularAccleration[0];
-        angularVelocity[1] += dt*angularAccleration[1];
+                //integrate angular accleration for angular velocity 
+                angularVelocity[0] += dt*angularAccleration[0];
+                angularVelocity[1] += dt*angularAccleration[1];
 
-        //convert angular velocity to pure quaternion
-        angularVelocityQ = vectorToPureQuaternion(angularVelocity);
+                //convert angular velocity to pure quaternion
+                angularVelocityQ = vectorToPureQuaternion(angularVelocity);
 
-        //compute first derivative of quaternion
-        stateQTimeDerivative = multiplyQP(stateQ, angularVelocityQ);
-        stateQTimeDerivative[0] = stateQTimeDerivative[0]*0.5;
-        stateQTimeDerivative[1] = stateQTimeDerivative[1]*0.5;
-        stateQTimeDerivative[2] = stateQTimeDerivative[2]*0.5;
-        stateQTimeDerivative[3] = stateQTimeDerivative[3]*0.5;
+                //compute first derivative of quaternion
+                stateQTimeDerivative = multiplyQP(stateQ, angularVelocityQ);
+                stateQTimeDerivative[0] = stateQTimeDerivative[0]*0.5;
+                stateQTimeDerivative[1] = stateQTimeDerivative[1]*0.5;
+                stateQTimeDerivative[2] = stateQTimeDerivative[2]*0.5;
+                stateQTimeDerivative[3] = stateQTimeDerivative[3]*0.5;
 
-        //integrate time derivative of q to update state quaternion
-        stateQ[0] += dt*stateQTimeDerivative[0];
-        stateQ[1] += dt*stateQTimeDerivative[1];
-        stateQ[2] += dt*stateQTimeDerivative[2];
-        stateQ[3] += dt*stateQTimeDerivative[3];
+                //integrate time derivative of q to update state quaternion
+                stateQ[0] += dt*stateQTimeDerivative[0];
+                stateQ[1] += dt*stateQTimeDerivative[1];
+                stateQ[2] += dt*stateQTimeDerivative[2];
+                stateQ[3] += dt*stateQTimeDerivative[3];
 
-        //normalize
-        normalizeQuaternion(stateQ);
+                //normalize
+                normalizeQuaternion(stateQ);
 
-        //compute euler angles
-        psi = quaternionToEuler(stateQ); 
+                //compute euler angles
+                psi = quaternionToEuler(stateQ); 
 
-        if(position[2]+0.25 < 0 && t > 0.5){
-            break; 
+                if(position[2]+0.25 < 0 && t > 0.5){
+                    landed = true; 
+                    break;
+                }
+            }
         }
+
+        //Apply Update (Draws 60 times a second, whether moving or landed)
+        UpdateCamera(&camera, CAMERA_FREE);
+        
+        BeginDrawing();
+            ClearBackground(RAYWHITE);
+            BeginMode3D(camera);
+                rlPushMatrix();
+                    rlTranslatef(position[0], position[2], position[1]);
+                    rlRotatef(psi[0], 1.0f, 0.0f, 0.0f);
+                    rlRotatef(psi[1], 0.0f, 0.0f, 1.0f);
+                    DrawCylinder((Vector3){ 0, 0, 0 }, 0.15f, 1.0f, 5.0f, 64, RED);
+                rlPopMatrix();
+                DrawGrid(100, 1.0f);
+            EndMode3D();
+            
+            DrawRectangle(10, 10, 320, 133, Fade(SKYBLUE, 0.5f));
+            DrawRectangleLines(10, 10, 320, 133, BLUE);
+            DrawText("Free camera default controls:", 20, 20, 10, BLACK);
+            DrawText("- Mouse Wheel to Zoom in-out", 40, 40, 10, DARKGRAY);
+        EndDrawing();
     }
+
+    CloseWindow();    
 
     //print
     std::cout << "Final position: (" << position[0] << "x, " << position[1] << "y, " << position[2] << "z)" << std::endl;

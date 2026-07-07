@@ -2,7 +2,7 @@ CXX = g++
 CXXFLAGS = -Wall -g
 LDFLAGS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 TARGET = bin/sim
-SRC = ref.cpp 
+SRC = sim.cpp 
 
 .PHONY: run all clean
 
