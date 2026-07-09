@@ -220,7 +220,7 @@ int main(void){
             DrawRectangle(10, 10, 200, 90, Fade(SKYBLUE, 0.5f));
             DrawRectangleLines(10, 10, 200, 90, BLUE);
             DrawText("Free camera default controls:", 20, 20, 10, BLACK);
-            DrawText("- Mouse Wheel to Zoom in-out", 40, 40, 10, DARKGRAY);
+            DrawText("- Mouse Wheel to Zoom in&out", 40, 40, 10, DARKGRAY);
             DrawText("- WASD to move around", 40, 60, 10, DARKGRAY);
             DrawText("- Press Z to focus on rocket", 40, 80, 10, DARKGRAY);
         EndDrawing();
@@ -243,7 +243,7 @@ std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, do
     }
     
     else {
-        std::array<double, 3> forceThrustVectorRf = {magnitudeThrustVector*std::sin(gimbalAngleY), magnitudeThrustVector*std::sin(gimbalAngleX), magnitudeThrustVector*std::cos(gimbalAngleY)*std::cos(gimbalAngleX)};   
+        std::array<double, 3> forceThrustVectorRf = {magnitudeThrustVector*std::sin(gimbalAngleX), magnitudeThrustVector*std::sin(gimbalAngleY), magnitudeThrustVector*std::cos(gimbalAngleX)*std::cos(gimbalAngleY)};   
         return forceThrustVectorRf;
     }
 }
