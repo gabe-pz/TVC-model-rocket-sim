@@ -66,10 +66,11 @@ int main(void){
     float cgFrac = (distanceToThrustVector - centerOfGravity) / distanceToThrustVector;                             
 
 
-    //coordinate transformation matrix between raylib vecs and my own vecs
+    //coordinate transformation matrix between raylib vecs and my own vecs. 
+    //Form for 4x4 matrix is: r1 u, r2 v, r3 w, r4 t, where u, v, and w is my x, y, and z hat vector mapped into raylibs coordinate system, and t is origin offset
     float cf[16] = {
+        0,0,1,0,
         1,0,0,0,
-        0,0,-1,0,
         0,1,0,0,
         0,0,0,1
     };
@@ -181,7 +182,8 @@ int main(void){
 
         //focus on vectorisZ
         if (IsKeyPressed(KEY_Z)){
-            camera.target = (Vector3){position[0], position[2], -position[1]};
+            //my x, i.e position[0] is mapped into raylibs z, and so on
+            camera.target = (Vector3){position[1], position[2], position[0]};
         }
         
 
