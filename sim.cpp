@@ -3,21 +3,37 @@
 #include <cmath> 
 #include <raylib.h> 
 #include <rlgl.h> 
+#include <cstdio>
+#include <vector>
+#include <random> 
+
+//wind modeling constants 
+const double ALPHA    = 5.0 / 3.0;      // spectral exponent: S(f) ~ 1/f^alpha
+const int    POLES    = 2;              // 2 poles -> limiting freq ~0.3 Hz -> such that gusts shorter than ~3-5 s
+const double GEN_FREQ = 20.0;           // fixed turbulence generation frequency [Hz]
+const double GEN_DT   = 1.0 / GEN_FREQ; // = 0.05 s between generated samples
+const double PINK_STD = 2.252;          // standard deviation of a long 2-pole pink sequence
+
 
 std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t, double magnitudeThrustVector);
 std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec);
 std::array<double, 4> multiplyQP(const std::array<double, 4>& q, const std::array<double, 4>& p); 
 std::array<double, 4> conjugateQuaternion(const std::array<double, 4>&q);
 std::array<double, 3> rotateRfToWf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorRf); 
+std::array<double, 3> rotateWfToRf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorWf); 
 std::array<double, 3> crossProduct(const std::array<double, 3>& a, const std::array<double, 3>& b);
 std::array<double, 2> quaternionToEuler(const std::array<double, 4>& stateQuaternion);
 void quatToMat(const std::array<double,4>& q, float m[16]);
 void normalizeQuaternion(std::array<double, 4>& q); 
+void computeCoefficients(double a[POLES + 1]);
+double gaussianWhite(std::mt19937 &rng);
+double windVelocity(double t, double U, double sigmaU, const std::vector<double> &pink);
+std::vector<double> generatePinkNoise(int n, unsigned seed);
 
 int main(void){     
-    //rocket properties, in SI units
+    //*****ROCKET PROPERTIES*****
     const double magnitudeThrustVector= 14.44;
-    //const double centerOfPressure = 0.0877;
+    const double centerOfPressure = 0.0877;
     const double distanceToThrustVector = 0.6477;
 
     double centerOfGravity = 0.405;
@@ -26,24 +42,45 @@ int main(void){
     long double Ixx = 0.0249899588;
     long double Iyy = 0.0249868814;
 
-    //physical constants
-    const double gravity = 9.81;
+    double aRef = 0.00456; 
+    double cD = 0.291;
+    int cN = 2;
 
-    //simulation constants
+    //*****SIMULATION SETTINGS*****
     double dt = 0.000001; 
     int simTime = 15;
+    const double gravity = 9.81; 
+    float rho = 1.187f;
 
-    //gimbal angle initalization
-    double gimbalAngleX = 0.02;
-    double gimbalAngleY = 0.2; 
+   
+    double gimbalAngleX = 0.0; //inital gimbal angles
+    double gimbalAngleY = 0.0; 
 
-    //raylib initalization
+    //*****WIND SETTINGS*****
+    //wind generation constants
+    unsigned int seed = 12345;
+    int n = (int)(simTime * GEN_FREQ) + 2;
+    double U         = 5.0;  
+    double intensity = 0.15;  
+    double sigmaU    = intensity * U;
+    
+    //wind turbulence buffers
+    std::vector<double> pinkU = generatePinkNoise(n, seed);
+    std::vector<double> pinkV = generatePinkNoise(n, seed + 1);
+    std::vector<double> pinkW = generatePinkNoise(n, seed + 2);
+
+    //mean-wind heading in world frame
+    double theta = 0.0;
+    double ux = std::cos(theta);
+    double uy = std::sin(theta);
+
+    //*****RAYLIB INITALIZATION*****
     const int screenWidth  = 800;
     const int screenHeight = 450;
     bool landed = false;
     InitWindow(screenWidth, screenHeight, "tvc-model-rocket-sim");
 
-    //Define the camera to look into our 3d world
+    //raylib camera defined
     Camera3D camera = { 0 };
     camera.position   = (Vector3){ 10.0f, 10.0f, 10.0f };  // Camera position
     camera.target     = (Vector3){ 0.0f, 0.0f, 0.0f };     // Camera looking-at point
@@ -52,19 +89,18 @@ int main(void){
     camera.projection = CAMERA_PERSPECTIVE;
     DisableCursor();    
 
-    //raylib sync 
+    //raylib syncing 
     int FPS = 60;
     SetTargetFPS(FPS); 
     int iterationsPerFrame = (1/(dt*FPS)); 
     double t = 0.0;
 
-    //Raylib rocket Dimensions
+    //raylib rocket Dimensions
     float bodyRadius = 0.25f;
     float bodyHeight = 2.5f;
     float coneHeight = 0.7;
     float coneTopRadius = 0.05f; 
     float cgFrac = (distanceToThrustVector - centerOfGravity) / distanceToThrustVector;                             
-
 
     //coordinate transformation matrix between raylib vecs and my own vecs. 
     //Form for 4x4 matrix is: r1 u, r2 v, r3 w, r4 t, where u, v, and w is my x, y, and z hat vector mapped into raylibs coordinate system, and t is origin offset
@@ -75,6 +111,7 @@ int main(void){
         0,0,0,1
     };
 
+    //*******STD ARRAY INITALIZATIONS*****
     //quaterion initaliztion
     std::array<double, 4> stateQ = {1.0, 0.0, 0.0, 0.0};
     std::array<double, 4> stateQTimeDerivative = {1.0, 0.0, 0.0, 0.0};
@@ -83,39 +120,78 @@ int main(void){
     //forces initalization
     std::array<double, 3> thrustRf = {0.0, 0.0, 0.0};
     std::array<double, 3> thrustWf = {0.0, 0.0, 0.0};
+    std::array<double, 3> aerodynamicForcesRf = {0.0, 0.0, 0.0}; 
+    std::array<double, 3> aerodynamicForceswf = {0.0, 0.0, 0.0}; 
     std::array<double, 3> sumOfForcesWf = {0.0, 0.0, 0.0}; 
 
     //torques initalization
     std::array<double, 3> torqueThrust = {0.0, 0.0, 0.0}; 
-
+    std::array<double, 3> torqueAero = {0.0, 0.0, 0.0}; 
+    
     //position and its derivatives initalization
     std::array<double, 3> accleration = {0.0, 0.0, 0.0};
     std::array<double, 3> velocity = {0.0, 0.0, 0.0};
     std::array<double, 3> position = {0.0, 0.0, 0.0}; 
+    std::array<double, 3> relativeVelocityWf = {0.0, 0.0, 0.0};
+    std::array<double, 3> relativeVelocityRf = {0.0, 0.0, 0.0};
 
     //rotation and its derivatives initalization. Note psi = (theta, phi)
     std::array<double, 3> angularAccleration = {0.0, 0.0, 0.0};
     std::array<double, 3> angularVelocity = {0.0, 0.0, 0.0};
     std::array<double, 2> psi = {0.0, 0.0};
     
-    //moment arm
+    //moment arms
     std::array<double, 3> r = {0.0, 0.0, centerOfGravity-distanceToThrustVector};
+    std::array<double, 3> r_aero = {0.0, 0.0, centerOfGravity-centerOfPressure};
 
-    // Main game loop
+    //wind initalization
+    std::array<double, 3> windVelocityWf = {0.0, 0.0, 0.0};
+                
+    //main physics loop
     while (!WindowShouldClose()){
 
         if(!landed){
-            //update loop
+            //state update
             for(int i = 0; i < iterationsPerFrame; i++){
                 t += dt;
+                
+                //*****WIND*****
+                //sampling three independent turbulence streams at time t
+                double u = windVelocity(t, U,   sigmaU,       pinkU);   
+                double v = windVelocity(t, 0.0, 0.8 * sigmaU, pinkV);   
+                double w = windVelocity(t, 0.0, 0.5 * sigmaU, pinkW);  
 
-                //compute forces
+                //rotate wind frame -> world frame
+                windVelocityWf = {u*(ux-v*uy), u*(uy+v*ux), w};
+                
+                //velocity of rocket wrt to wind in world frame, then into rocket frame
+                relativeVelocityWf[0] = velocity[0] - windVelocityWf[0];
+                relativeVelocityWf[1] = velocity[1] - windVelocityWf[1];
+                relativeVelocityWf[2] = velocity[2] - windVelocityWf[2];
+                relativeVelocityRf = rotateWfToRf(stateQ, relativeVelocityWf);
+                
+                //magnitude of relative v in RF
+                double relativeVelMag = std::sqrt((relativeVelocityRf[0]*relativeVelocityRf[0]) + (relativeVelocityRf[1]*relativeVelocityRf[1]) + (relativeVelocityRf[2]*relativeVelocityRf[2]));
+                
+                //compute angle of attacks for x and y
+                double aoa_x = std::atan2(relativeVelocityRf[0], relativeVelocityRf[2]);
+                double aoa_y = std::atan2(relativeVelocityWf[1], relativeVelocityWf[2]);
+                
+                //*****COMPUTE FORCES*****
+                //force due to thrust
                 thrustRf = forceThrustRf(gimbalAngleX*DEG2RAD, gimbalAngleY*DEG2RAD, t, magnitudeThrustVector);
                 thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
+                //aero forces
+                aerodynamicForcesRf[0] = -0.5*rho*cN*aoa_x*aRef*relativeVelMag*relativeVelocityRf[0];
+                aerodynamicForcesRf[1] = -0.5*rho*cN*aoa_y*aRef*relativeVelMag*relativeVelocityRf[1];
+                aerodynamicForcesRf[2] = -0.5*rho*cD*aRef*(std::abs(relativeVelocityRf[2]))*relativeVelocityRf[2]; 
+                aerodynamicForceswf = rotateRfToWf(stateQ, aerodynamicForcesRf);
+            
                 //sum forces
-                sumOfForcesWf = {thrustWf[0], thrustWf[1], thrustWf[2]-mass*gravity}; 
-
+                sumOfForcesWf = {thrustWf[0]+aerodynamicForceswf[0], thrustWf[1]+aerodynamicForceswf[1], thrustWf[2]-mass*gravity+aerodynamicForceswf[2]}; 
+                
+                //****GET POSITION THROUGH ITS DERIVATIVES AND SUCH*****
                 //compute accleration
                 accleration[0] = (sumOfForcesWf[0] / mass);
                 accleration[1] = (sumOfForcesWf[1] / mass);
@@ -131,14 +207,14 @@ int main(void){
                 position[1] += dt*velocity[1];
                 position[2] += dt*velocity[2]; 
 
-
+                //****GET ROATION THROUGH ITS DERIVATIVES*****
                 //compute torques   
                 torqueThrust = crossProduct(r, thrustRf);
-
+                torqueAero = crossProduct(r_aero, aerodynamicForcesRf);
 
                 //compute angular accleration
-                angularAccleration[0] = (torqueThrust[0] / Ixx);
-                angularAccleration[1] = (torqueThrust[1] / Iyy);
+                angularAccleration[0] = ((torqueThrust[0] + torqueAero[0]) / Ixx);
+                angularAccleration[1] = ((torqueThrust[1] + torqueAero[0]) / Iyy);
 
                 //integrate angular accleration for angular velocity 
                 angularVelocity[0] += dt*angularAccleration[0];
@@ -183,7 +259,7 @@ int main(void){
         //focus on vectorisZ
         if (IsKeyPressed(KEY_Z)){
             //my x, i.e position[0] is mapped into raylibs z, and so on
-            camera.target = (Vector3){position[1], position[2], position[0]};
+            camera.target = (Vector3){(float)position[1], (float)position[2], (float)position[0]};
         }
         
 
@@ -280,6 +356,16 @@ std::array<double, 3> rotateRfToWf(const std::array<double, 4>& stateQuaternion,
 
     return vectorWf;
 }
+std::array<double, 3> rotateWfToRf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorWf){
+    std::array<double, 4> vectorWfToQ = vectorToPureQuaternion(vectorWf);
+    std::array<double, 4> conjugateStateQuaternion = conjugateQuaternion(stateQuaternion); 
+    std::array<double, 4> q1 = multiplyQP(conjugateStateQuaternion, vectorWfToQ);
+
+    std::array<double, 4> vectorRfQ = multiplyQP(q1, stateQuaternion);
+    std::array<double, 3> vectorRf = {vectorRfQ[1], vectorRfQ[2], vectorRfQ[3]}; 
+
+    return vectorRf;
+}
 std::array<double, 3> crossProduct(const std::array<double, 3>& a, const std::array<double, 3>& b){
     std::array<double, 3> aCrossb = {a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]};
 
@@ -317,4 +403,50 @@ void quatToMat(const std::array<double,4>& q, float m[16]) {
     m[4]=r01; m[5]=r11; m[6]=r21; m[7]=0;  
     m[8]=r02; m[9]=r12; m[10]=r22;m[11]=0;
     m[12]=0;  m[13]=0;  m[14]=0;  m[15]=1; 
+}
+
+//filter coefficients via recursion, a_k = (k - 1 - alpha/2) * a_{k-1} / k, a_0 = 1 
+void computeCoefficients(double a[POLES + 1]) {
+    a[0] = 1.0;
+    for (int k = 1; k <= POLES; k++)
+        a[k] = (k - 1.0 - ALPHA / 2.0) * a[k - 1] / k;   // gives a1 = -5/6, a2 = -5/72
+}
+
+//one sample of zero-mean, unit-variance Gaussian white noise 
+double gaussianWhite(std::mt19937 &rng) {
+    std::normal_distribution<double> dist(0.0, 1.0);
+    return dist(rng);
+}
+
+//generate n samples of unit-std pink noise with the Kasdin IIR filter:
+//x_n = w_n - a1*x_{n-1} - a2*x_{n-2}   (eq. 4.5 truncated to 2 poles, from open rocket technical docs)
+std::vector<double> generatePinkNoise(int n, unsigned seed) {
+    double a[POLES + 1];
+    computeCoefficients(a);
+
+    // deterministic pseudorandom engine (seed -> reproducible wind)
+    std::mt19937 rng(seed);          
+    std::vector<double> x(n);
+    double x1 = 0.0, x2 = 0.0;     
+
+    for (int i = 0; i < n; i++) {
+        double w = gaussianWhite(rng);
+        //the filter "drags" past values along, correlating samples -> boosts low frequencies
+        double xi = w - a[1] * x1 - a[2] * x2;
+        x2 = x1;
+        x1 = xi;
+        // rescale so the sequence has standard deviation ~1
+        x[i] = xi / PINK_STD;       
+    }
+    return x;
+}
+
+//wind speed at arbitrary time t: U + sigma_u * (interpolated pink sample) 
+double windVelocity(double t, double U, double sigmaU, const std::vector<double> &pink) {
+    int i = (int)(t / GEN_DT);                       // index of the 20 Hz sample just before t
+    if (i < 0) i = 0;
+    if (i > (int)pink.size() - 2) i = pink.size() - 2;
+    double frac = (t - i * GEN_DT) / GEN_DT;         // fractional position between samples i and i+1
+    double x = (1.0 - frac) * pink[i] + frac * pink[i + 1];   // some inear interpolation action 
+    return U + sigmaU * x;
 }
