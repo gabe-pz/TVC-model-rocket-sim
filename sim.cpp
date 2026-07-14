@@ -155,6 +155,7 @@ int main(void){
             for(int i = 0; i < iterationsPerFrame; i++){
                 t += dt;
                 
+
                 //*****WIND*****
                 //sampling three independent turbulence streams at time t
                 double u = windVelocity(t, U,   sigmaU,       pinkU);   
@@ -162,7 +163,7 @@ int main(void){
                 double w = windVelocity(t, 0.0, 0.5 * sigmaU, pinkW);  
 
                 //rotate wind frame -> world frame
-                windVelocityWf = {u*(ux-v*uy), u*(uy+v*ux), w};
+                windVelocityWf = {u*ux - v*uy, u*uy + v*ux, w};
                 
                 //velocity of rocket wrt to wind in world frame, then into rocket frame
                 relativeVelocityWf[0] = velocity[0] - windVelocityWf[0];
@@ -175,7 +176,7 @@ int main(void){
                 
                 //compute angle of attacks for x and y
                 double aoa_x = std::atan2(relativeVelocityRf[0], relativeVelocityRf[2]);
-                double aoa_y = std::atan2(relativeVelocityWf[1], relativeVelocityWf[2]);
+                double aoa_y = std::atan2(relativeVelocityRf[1], relativeVelocityRf[2]);
                 
                 //*****COMPUTE FORCES*****
                 //force due to thrust
@@ -183,8 +184,8 @@ int main(void){
                 thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
                 //aero forces
-                aerodynamicForcesRf[0] = -0.5*rho*cN*aoa_x*aRef*relativeVelMag*relativeVelocityRf[0];
-                aerodynamicForcesRf[1] = -0.5*rho*cN*aoa_y*aRef*relativeVelMag*relativeVelocityRf[1];
+                aerodynamicForcesRf[0] = -0.5*rho*cN*aoa_x*aRef*relativeVelMag*relativeVelMag;
+                aerodynamicForcesRf[1] = -0.5*rho*cN*aoa_y*aRef*relativeVelMag*relativeVelMag;
                 aerodynamicForcesRf[2] = -0.5*rho*cD*aRef*(std::abs(relativeVelocityRf[2]))*relativeVelocityRf[2]; 
                 aerodynamicForceswf = rotateRfToWf(stateQ, aerodynamicForcesRf);
             
@@ -214,7 +215,7 @@ int main(void){
 
                 //compute angular accleration
                 angularAccleration[0] = ((torqueThrust[0] + torqueAero[0]) / Ixx);
-                angularAccleration[1] = ((torqueThrust[1] + torqueAero[0]) / Iyy);
+                angularAccleration[1] = ((torqueThrust[1] + torqueAero[1]) / Iyy);
 
                 //integrate angular accleration for angular velocity 
                 angularVelocity[0] += dt*angularAccleration[0];
