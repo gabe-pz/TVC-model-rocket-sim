@@ -7,15 +7,17 @@
 #include <vector>
 #include <random> 
 
-//wind modeling constants 
+//wind modeling global constants 
 const double ALPHA    = 5.0 / 3.0;      // spectral exponent: S(f) ~ 1/f^alpha
 const int    POLES    = 2;              // 2 poles -> limiting freq ~0.3 Hz -> such that gusts shorter than ~3-5 s
 const double GEN_FREQ = 20.0;           // fixed turbulence generation frequency [Hz]
 const double GEN_DT   = 1.0 / GEN_FREQ; // = 0.05 s between generated samples
 const double PINK_STD = 2.252;          // standard deviation of a long 2-pole pink sequence
 
+//rocket global constants
+const double tBurn = 3.45;
 
-std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t, double magnitudeThrustVector);
+std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t);
 std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec);
 std::array<double, 4> multiplyQP(const std::array<double, 4>& q, const std::array<double, 4>& p); 
 std::array<double, 4> conjugateQuaternion(const std::array<double, 4>&q);
@@ -25,6 +27,10 @@ std::array<double, 3> crossProduct(const std::array<double, 3>& a, const std::ar
 std::array<double, 2> quaternionToEuler(const std::array<double, 4>& stateQuaternion);
 void quatToMat(const std::array<double,4>& q, float m[16]);
 void normalizeQuaternion(std::array<double, 4>& q); 
+
+double magnitudeThrust(double t);
+double mass(double t); 
+
 void computeCoefficients(double a[POLES + 1]);
 double gaussianWhite(std::mt19937 &rng);
 double windVelocity(double t, double U, double sigmaU, const std::vector<double> &pink);
@@ -32,28 +38,26 @@ std::vector<double> generatePinkNoise(int n, unsigned seed);
 
 int main(void){     
     //*****ROCKET PROPERTIES*****
-    const double magnitudeThrustVector= 14.44;
     const double centerOfPressure = 0.0877;
     const double distanceToThrustVector = 0.6477;
 
     double centerOfGravity = 0.405;
-    double mass = 1.01;
 
     long double Ixx = 0.0249899588;
     long double Iyy = 0.0249868814;
 
-    double aRef = 0.00456; 
-    double cD = 0.291;
-    int cN = 2;
+    const double aRef = 0.00456; 
+    const double cD = 0.291;
+    const int cN = 2;
 
     //*****SIMULATION SETTINGS*****
-    double dt = 0.000001; 
-    int simTime = 15;
+    const double dt = 0.000001; 
+    const int simTime = 15;
     const double gravity = 9.81; 
-    float rho = 1.187f;
+    const float rho = 1.187f;
 
-   
-    double gimbalAngleX = 0.0; //inital gimbal angles
+   //inital gimbal angles
+    double gimbalAngleX = 0.0;
     double gimbalAngleY = 0.0; 
 
     //*****WIND SETTINGS*****
@@ -154,7 +158,6 @@ int main(void){
             //state update
             for(int i = 0; i < iterationsPerFrame; i++){
                 t += dt;
-                
 
                 //*****WIND*****
                 //sampling three independent turbulence streams at time t
@@ -180,7 +183,7 @@ int main(void){
                 
                 //*****COMPUTE FORCES*****
                 //force due to thrust
-                thrustRf = forceThrustRf(gimbalAngleX*DEG2RAD, gimbalAngleY*DEG2RAD, t, magnitudeThrustVector);
+                thrustRf = forceThrustRf(gimbalAngleX*DEG2RAD, gimbalAngleY*DEG2RAD, t);
                 thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
                 //aero forces
@@ -190,13 +193,13 @@ int main(void){
                 aerodynamicForceswf = rotateRfToWf(stateQ, aerodynamicForcesRf);
             
                 //sum forces
-                sumOfForcesWf = {thrustWf[0]+aerodynamicForceswf[0], thrustWf[1]+aerodynamicForceswf[1], thrustWf[2]-mass*gravity+aerodynamicForceswf[2]}; 
+                sumOfForcesWf = {thrustWf[0]+aerodynamicForceswf[0], thrustWf[1]+aerodynamicForceswf[1], thrustWf[2]-mass(t)*gravity+aerodynamicForceswf[2]}; 
                 
                 //****GET POSITION THROUGH ITS DERIVATIVES AND SUCH*****
                 //compute accleration
-                accleration[0] = (sumOfForcesWf[0] / mass);
-                accleration[1] = (sumOfForcesWf[1] / mass);
-                accleration[2] = (sumOfForcesWf[2] / mass);
+                accleration[0] = (sumOfForcesWf[0] / mass(t));
+                accleration[1] = (sumOfForcesWf[1] / mass(t));
+                accleration[2] = (sumOfForcesWf[2] / mass(t));
 
                 //integrate accleration for velocity
                 velocity[0] += dt*accleration[0];
@@ -314,15 +317,14 @@ int main(void){
 }
 
 
-std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t, double magnitudeThrustVector){
-
-    if(t > 3){
+std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t){    
+    if(t > tBurn){
         std::array<double, 3> forceThrustVectorRf = {0.0, 0.0, 0.0}; 
         return forceThrustVectorRf;
     }
     
     else {
-        std::array<double, 3> forceThrustVectorRf = {magnitudeThrustVector*std::sin(gimbalAngleX), magnitudeThrustVector*std::sin(gimbalAngleY), magnitudeThrustVector*std::cos(gimbalAngleX)*std::cos(gimbalAngleY)};   
+        std::array<double, 3> forceThrustVectorRf = {magnitudeThrust(t)*std::sin(gimbalAngleX), magnitudeThrust(t)*std::sin(gimbalAngleY), magnitudeThrust(t)*std::cos(gimbalAngleX)*std::cos(gimbalAngleY)};   
         return forceThrustVectorRf;
     }
 }
@@ -404,6 +406,14 @@ void quatToMat(const std::array<double,4>& q, float m[16]) {
     m[4]=r01; m[5]=r11; m[6]=r21; m[7]=0;  
     m[8]=r02; m[9]=r12; m[10]=r22;m[11]=0;
     m[12]=0;  m[13]=0;  m[14]=0;  m[15]=1; 
+}
+double magnitudeThrust(double t){
+    return (-2.32*t+17.76);
+}
+double mass(double t){
+    const double massRocketEmpty = 0.95;
+    if(t > tBurn) return massRocketEmpty;
+    else return ((-17.571*t + 60.62)/1000.0 + massRocketEmpty);
 }
 
 //filter coefficients via recursion, a_k = (k - 1 - alpha/2) * a_{k-1} / k, a_0 = 1 
