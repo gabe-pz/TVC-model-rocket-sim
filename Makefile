@@ -2,7 +2,8 @@ CXX = g++
 CXXFLAGS = -Wall -g
 LDFLAGS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 TARGET = bin/sim
-SRC = sim.cpp 
+SRC = src/sim.cpp 
+INC = $(wildcard include/*.cpp)
 
 .PHONY: run all clean
 
@@ -13,7 +14,7 @@ all: $(TARGET)
 
 $(TARGET): $(SRC)
 	mkdir -p bin
-	$(CXX) $(CXXFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(SRC) $(INC) -o $(TARGET) $(LDFLAGS)
 
 clean:
 	rm -rf bin

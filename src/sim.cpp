@@ -1,40 +1,12 @@
-#include <iostream> 
+#include <iostream>
 #include <array>
 #include <cmath> 
 #include <raylib.h> 
 #include <rlgl.h> 
-#include <cstdio>
-#include <vector>
-#include <random> 
 
-//wind modeling global constants 
-const double ALPHA    = 5.0 / 3.0;      // spectral exponent: S(f) ~ 1/f^alpha
-const int    POLES    = 2;              // 2 poles -> limiting freq ~0.3 Hz -> such that gusts shorter than ~3-5 s
-const double GEN_FREQ = 20.0;           // fixed turbulence generation frequency [Hz]
-const double GEN_DT   = 1.0 / GEN_FREQ; // = 0.05 s between generated samples
-const double PINK_STD = 2.252;          // standard deviation of a long 2-pole pink sequence
-
-//rocket global constants
-const double tBurn = 3.45;
-
-std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t);
-std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec);
-std::array<double, 4> multiplyQP(const std::array<double, 4>& q, const std::array<double, 4>& p); 
-std::array<double, 4> conjugateQuaternion(const std::array<double, 4>&q);
-std::array<double, 3> rotateRfToWf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorRf); 
-std::array<double, 3> rotateWfToRf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorWf); 
-std::array<double, 3> crossProduct(const std::array<double, 3>& a, const std::array<double, 3>& b);
-std::array<double, 2> quaternionToEuler(const std::array<double, 4>& stateQuaternion);
-void quatToMat(const std::array<double,4>& q, float m[16]);
-void normalizeQuaternion(std::array<double, 4>& q); 
-
-double magnitudeThrust(double t);
-double mass(double t); 
-
-void computeCoefficients(double a[POLES + 1]);
-double gaussianWhite(std::mt19937 &rng);
-double windVelocity(double t, double U, double sigmaU, const std::vector<double> &pink);
-std::vector<double> generatePinkNoise(int n, unsigned seed);
+#include "../include/windGeneration.h" 
+#include "../include/rocketMath.h"
+#include "../include/rocketProperties.h"
 
 int main(void){     
     //*****ROCKET PROPERTIES*****
@@ -56,7 +28,7 @@ int main(void){
     const double gravity = 9.81; 
     const float rho = 1.187f;
 
-   //inital gimbal angles
+    //inital gimbal angles
     double gimbalAngleX = 0.0;
     double gimbalAngleY = 0.0; 
 
@@ -317,147 +289,3 @@ int main(void){
 }
 
 
-std::array<double, 3> forceThrustRf(double gimbalAngleX, double gimbalAngleY, double t){    
-    if(t > tBurn){
-        std::array<double, 3> forceThrustVectorRf = {0.0, 0.0, 0.0}; 
-        return forceThrustVectorRf;
-    }
-    
-    else {
-        std::array<double, 3> forceThrustVectorRf = {magnitudeThrust(t)*std::sin(gimbalAngleX), magnitudeThrust(t)*std::sin(gimbalAngleY), magnitudeThrust(t)*std::cos(gimbalAngleX)*std::cos(gimbalAngleY)};   
-        return forceThrustVectorRf;
-    }
-}
-std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec){
-    std::array<double, 4> vecToQuaternion = {0.0, vec[0], vec[1], vec[2]} ;
-
-    return vecToQuaternion;
-}
-std::array<double, 4> multiplyQP(const std::array<double, 4>& q, const std::array<double, 4>& p){
-    double qP0 = q[0]*p[0] - q[1]*p[1] - q[2]*p[2] - q[3]*p[3];
-    double qP1 = q[0]*p[1] + q[1]*p[0] + q[2]*p[3] - q[3]*p[2];
-    double qP2 = q[0]*p[2] - q[1]*p[3] + q[2]*p[0] + q[3]*p[1];
-    double qP3 = q[0]*p[3] + q[1]*p[2] - q[2]*p[1] + q[3]*p[0];
-    
-    
-    std::array<double, 4> QP = {qP0, qP1, qP2, qP3};
-
-    return QP; 
-}
-std::array<double, 4> conjugateQuaternion(const std::array<double, 4>&q){
-    std::array<double, 4> qStar = {q[0], -q[1], -q[2], -q[3]};
-
-    return qStar;
-}
-std::array<double, 3> rotateRfToWf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorRf){
-    std::array<double, 4> vectorRfToQ = vectorToPureQuaternion(vectorRf);
-    std::array<double, 4> q1 = multiplyQP(stateQuaternion, vectorRfToQ);
-    std::array<double, 4> conjugateStateQuaternion = conjugateQuaternion(stateQuaternion); 
-    std::array<double, 4> vectorWfQ = multiplyQP(q1, conjugateStateQuaternion);
-    
-    std::array<double, 3> vectorWf = {vectorWfQ[1], vectorWfQ[2], vectorWfQ[3]}; 
-
-    return vectorWf;
-}
-std::array<double, 3> rotateWfToRf(const std::array<double, 4>& stateQuaternion, const std::array<double, 3>& vectorWf){
-    std::array<double, 4> vectorWfToQ = vectorToPureQuaternion(vectorWf);
-    std::array<double, 4> conjugateStateQuaternion = conjugateQuaternion(stateQuaternion); 
-    std::array<double, 4> q1 = multiplyQP(conjugateStateQuaternion, vectorWfToQ);
-
-    std::array<double, 4> vectorRfQ = multiplyQP(q1, stateQuaternion);
-    std::array<double, 3> vectorRf = {vectorRfQ[1], vectorRfQ[2], vectorRfQ[3]}; 
-
-    return vectorRf;
-}
-std::array<double, 3> crossProduct(const std::array<double, 3>& a, const std::array<double, 3>& b){
-    std::array<double, 3> aCrossb = {a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]};
-
-    return aCrossb;
-}
-std::array<double, 2> quaternionToEuler(const std::array<double, 4>& stateQuaternion){
-
-    std::array<double, 2> angles = {std::atan2(2*(stateQuaternion[0]*stateQuaternion[1]+stateQuaternion[2]*stateQuaternion[3]),
-         1-2*(stateQuaternion[1]*stateQuaternion[1]+stateQuaternion[2]*stateQuaternion[2])), 
-         std::asin(2*(stateQuaternion[0]*stateQuaternion[2] - stateQuaternion[1]*stateQuaternion[3]))};
-
-    return angles;
-}
-void normalizeQuaternion(std::array<double, 4>& q){
-    double w = q[0]*q[0];
-    double x = q[1]*q[1];
-    double y = q[2]*q[2];
-    double z = q[3]*q[3]; 
-
-    double magnitude = std::sqrt(w+x+y+z); 
-
-    q[0] = (q[0] / magnitude);
-    q[1] = (q[1] / magnitude);
-    q[2] = (q[2] / magnitude);
-    q[3] = (q[3] / magnitude);
-}
-void quatToMat(const std::array<double,4>& q, float m[16]) {
-    double w=q[0], x=q[1], y=q[2], z=q[3];
-
-    double r00=1-2*(y*y+z*z), r01=2*(x*y-w*z),   r02=2*(x*z+w*y);
-    double r10=2*(x*y+w*z),   r11=1-2*(x*x+z*z), r12=2*(y*z-w*x);
-    double r20=2*(x*z-w*y),   r21=2*(y*z+w*x),   r22=1-2*(x*x+y*y);
-
-    m[0]=r00; m[1]=r10; m[2]=r20; m[3]=0;
-    m[4]=r01; m[5]=r11; m[6]=r21; m[7]=0;  
-    m[8]=r02; m[9]=r12; m[10]=r22;m[11]=0;
-    m[12]=0;  m[13]=0;  m[14]=0;  m[15]=1; 
-}
-double magnitudeThrust(double t){
-    return (-2.32*t+17.76);
-}
-double mass(double t){
-    const double massRocketEmpty = 0.95;
-    if(t > tBurn) return massRocketEmpty;
-    else return ((-17.571*t + 60.62)/1000.0 + massRocketEmpty);
-}
-
-//filter coefficients via recursion, a_k = (k - 1 - alpha/2) * a_{k-1} / k, a_0 = 1 
-void computeCoefficients(double a[POLES + 1]) {
-    a[0] = 1.0;
-    for (int k = 1; k <= POLES; k++)
-        a[k] = (k - 1.0 - ALPHA / 2.0) * a[k - 1] / k;   // gives a1 = -5/6, a2 = -5/72
-}
-
-//one sample of zero-mean, unit-variance Gaussian white noise 
-double gaussianWhite(std::mt19937 &rng) {
-    std::normal_distribution<double> dist(0.0, 1.0);
-    return dist(rng);
-}
-
-//generate n samples of unit-std pink noise with the Kasdin IIR filter:
-//x_n = w_n - a1*x_{n-1} - a2*x_{n-2}   (eq. 4.5 truncated to 2 poles, from open rocket technical docs)
-std::vector<double> generatePinkNoise(int n, unsigned seed) {
-    double a[POLES + 1];
-    computeCoefficients(a);
-
-    // deterministic pseudorandom engine (seed -> reproducible wind)
-    std::mt19937 rng(seed);          
-    std::vector<double> x(n);
-    double x1 = 0.0, x2 = 0.0;     
-
-    for (int i = 0; i < n; i++) {
-        double w = gaussianWhite(rng);
-        //the filter "drags" past values along, correlating samples -> boosts low frequencies
-        double xi = w - a[1] * x1 - a[2] * x2;
-        x2 = x1;
-        x1 = xi;
-        // rescale so the sequence has standard deviation ~1
-        x[i] = xi / PINK_STD;       
-    }
-    return x;
-}
-
-//wind speed at arbitrary time t: U + sigma_u * (interpolated pink sample) 
-double windVelocity(double t, double U, double sigmaU, const std::vector<double> &pink) {
-    int i = (int)(t / GEN_DT);                       // index of the 20 Hz sample just before t
-    if (i < 0) i = 0;
-    if (i > (int)pink.size() - 2) i = pink.size() - 2;
-    double frac = (t - i * GEN_DT) / GEN_DT;         // fractional position between samples i and i+1
-    double x = (1.0 - frac) * pink[i] + frac * pink[i + 1];   // some inear interpolation action 
-    return U + sigmaU * x;
-}
