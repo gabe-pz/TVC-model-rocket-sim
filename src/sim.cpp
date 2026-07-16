@@ -8,8 +8,10 @@
 #include "../include/rocketMath.h"
 #include "../include/rocketProperties.h"
 
+
+
 int main(void){     
-    //*****ROCKET PROPERTIES*****
+    //*****SOME ROCKET PROPERTIES DEFINED*****
     const double centerOfPressure = 0.0877;
     const double distanceToThrustVector = 0.6477;
 
@@ -22,15 +24,42 @@ int main(void){
     const double cD = 0.291;
     const int cN = 2;
 
+    //inital gimbal angles
+    double gimbalAngleX = 0.0;
+    double gimbalAngleY = 0.0; 
+    
     //*****SIMULATION SETTINGS*****
     const double dt = 0.000001; 
     const int simTime = 15;
     const double gravity = 9.81; 
     const float rho = 1.187f;
 
-    //inital gimbal angles
-    double gimbalAngleX = 0.0;
-    double gimbalAngleY = 0.0; 
+    //****PID SETTING*****
+    double errorX, errorY;
+    double prevErrorX = 0.0;
+    double prevErrorY = 0.0;
+
+    double setPoint = 0.0; 
+    
+    //pid gains
+    double kPy = 0.2;
+    double kIy = 0.01; 
+    double kDy = 0.05;
+
+    double kPx = 0.2;
+    double kIx = 0.01; 
+    double kDx = 0.05;
+
+    //pid terms 
+    double pTermY = 0.0;
+    double iTermY = 0.0;
+    double dTermY = 0.0;
+
+    double pTermX = 0.0;
+    double iTermX = 0.0;
+    double dTermX = 0.0;
+
+
 
     //*****WIND SETTINGS*****
     //wind generation constants
@@ -51,11 +80,10 @@ int main(void){
     double uy = std::sin(theta);
 
     //*****RAYLIB INITALIZATION*****
-    const int screenWidth  = 800;
-    const int screenHeight = 450;
+    const int screenWidth  = 1800;
+    const int screenHeight = 1200;
     bool landed = false;
     InitWindow(screenWidth, screenHeight, "tvc-model-rocket-sim");
-
     //raylib camera defined
     Camera3D camera = { 0 };
     camera.position   = (Vector3){ 10.0f, 10.0f, 10.0f };  // Camera position
@@ -122,7 +150,11 @@ int main(void){
 
     //wind initalization
     std::array<double, 3> windVelocityWf = {0.0, 0.0, 0.0};
-                
+    
+    double currentAltitude = 0.0;
+    double prevAltitude = 0.0;
+    bool printed = false; 
+
     //main physics loop
     while (!WindowShouldClose()){
 
@@ -130,6 +162,25 @@ int main(void){
             //state update
             for(int i = 0; i < iterationsPerFrame; i++){
                 t += dt;
+                
+                //pid control 
+                errorY = setPoint - RAD2DEG*psi[0]; 
+                errorX = setPoint - RAD2DEG*psi[1];
+                
+                pTermY = kPy*errorY; 
+                iTermY += dt*kIy*errorY;
+                dTermY = kDy*((errorY - prevErrorY) / dt);
+
+                pTermX = kPx*errorX; 
+                iTermX += dt*kIx*errorX;
+                dTermX = kDx*((errorX - prevErrorX) / dt);
+                
+                prevErrorY = errorY;
+                prevErrorX = errorX;
+                
+                gimbalAngleY = clamp(pTermY+iTermY+dTermY, -5.0, 5.0);
+                gimbalAngleX = clamp(-(pTermX+iTermX+dTermX), -5.0, 5.0);
+
 
                 //*****WIND*****
                 //sampling three independent turbulence streams at time t
@@ -212,16 +263,27 @@ int main(void){
                 stateQ[2] += dt*stateQTimeDerivative[2];
                 stateQ[3] += dt*stateQTimeDerivative[3];
 
-                //normalize
+                //normalize quaterinon 
                 normalizeQuaternion(stateQ);
 
-                //compute euler angles
+                //get euler angles
                 psi = quaternionToEuler(stateQ); 
-
+                
+                //*****LANDING CHECK*****
                 if(position[2] < 0 && t > 0.5){
                     landed = true; 
                     break;
                 }
+                
+                //*****APOGEE CHECK*****
+                currentAltitude = position[2];
+                if(currentAltitude < prevAltitude && printed != true){
+                    std::cout << "APOGEE at t = " << t << "s" << std::endl; 
+                    std::cout << "APOGEE ALTITUDE = " << position[2]*3.281 << "ft" << std::endl;
+                    printed = true;
+                }
+                prevAltitude = currentAltitude;
+            
             }
         }
 
@@ -287,5 +349,3 @@ int main(void){
 
     return 0;
 }
-
-

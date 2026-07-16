@@ -79,3 +79,9 @@ void quatToMat(const std::array<double,4>& q, float m[16]) {
     m[8]=r02; m[9]=r12; m[10]=r22;m[11]=0;
     m[12]=0;  m[13]=0;  m[14]=0;  m[15]=1; 
 }
+double clamp(double val, double min, double max){
+    if(val < min) return min;
+    else if(val > max) return max;
+    else return val;
+
+}
