@@ -9,32 +9,39 @@
 #include "../include/rocketProperties.h"
 
 
-
 int main(void){     
-    //*****SOME ROCKET PROPERTIES DEFINED*****
+    //*****ROCKET PROPERTIES*****
     const double centerOfPressure = 0.0877;
-    const double distanceToThrustVector = 0.6477;
+    const double aRef = 0.00456; 
+    const double cD = 0.291;
+    const int cNa = 2;
 
     double centerOfGravity = 0.405;
+    const double distanceToThrustVector = 0.6477;
 
     long double Ixx = 0.0249899588;
     long double Iyy = 0.0249868814;
 
-    const double aRef = 0.00456; 
-    const double cD = 0.291;
-    const int cN = 2;
-
-    //inital gimbal angles
+    //inital gimbal angles(in degrees)
     double gimbalAngleX = 0.0;
     double gimbalAngleY = 0.0; 
+
     
     //*****SIMULATION SETTINGS*****
     const double dt = 0.000001; 
     const int simTime = 15;
+    bool landed = false;
+    double currentAltitude = 0.0;
+    double prevAltitude = 0.0;
+    bool printed = false; 
+    bool coastingOver = false;
+    bool printedCoasted = false;
+
+    //*****WORLD THINGS***** 
     const double gravity = 9.81; 
     const float rho = 1.187f;
 
-    //****PID SETTING*****
+    //****PID SETTINGS*****
     double errorX, errorY;
     double prevErrorX = 0.0;
     double prevErrorY = 0.0;
@@ -42,13 +49,13 @@ int main(void){
     double setPoint = 0.0; 
     
     //pid gains
-    double kPy = 0.2;
-    double kIy = 0.01; 
-    double kDy = 0.05;
+    double kPy = 0.3;
+    double kIy = 0.07; 
+    double kDy = 0.1;
 
-    double kPx = 0.2;
-    double kIx = 0.01; 
-    double kDx = 0.05;
+    double kPx = 0.3;
+    double kIx = 0.07; 
+    double kDx = 0.1;
 
     //pid terms 
     double pTermY = 0.0;
@@ -60,13 +67,12 @@ int main(void){
     double dTermX = 0.0;
 
 
-
     //*****WIND SETTINGS*****
     //wind generation constants
     unsigned int seed = 12345;
     int n = (int)(simTime * GEN_FREQ) + 2;
-    double U         = 5.0;  
-    double intensity = 0.15;  
+    double U         = 5.0;  //average wind velocity
+    double intensity = 0.20; //turbulence intensity 
     double sigmaU    = intensity * U;
     
     //wind turbulence buffers
@@ -82,9 +88,9 @@ int main(void){
     //*****RAYLIB INITALIZATION*****
     const int screenWidth  = 1800;
     const int screenHeight = 1200;
-    bool landed = false;
     InitWindow(screenWidth, screenHeight, "tvc-model-rocket-sim");
-    //raylib camera defined
+    
+    //raylib camera 
     Camera3D camera = { 0 };
     camera.position   = (Vector3){ 10.0f, 10.0f, 10.0f };  // Camera position
     camera.target     = (Vector3){ 0.0f, 0.0f, 0.0f };     // Camera looking-at point
@@ -114,6 +120,7 @@ int main(void){
         0,1,0,0,
         0,0,0,1
     };
+
 
     //*******STD ARRAY INITALIZATIONS*****
     //quaterion initaliztion
@@ -150,10 +157,6 @@ int main(void){
 
     //wind initalization
     std::array<double, 3> windVelocityWf = {0.0, 0.0, 0.0};
-    
-    double currentAltitude = 0.0;
-    double prevAltitude = 0.0;
-    bool printed = false; 
 
     //main physics loop
     while (!WindowShouldClose()){
@@ -163,7 +166,7 @@ int main(void){
             for(int i = 0; i < iterationsPerFrame; i++){
                 t += dt;
                 
-                //pid control 
+                //******PID CONTROL*****
                 errorY = setPoint - RAD2DEG*psi[0]; 
                 errorX = setPoint - RAD2DEG*psi[1];
                 
@@ -200,18 +203,14 @@ int main(void){
                 //magnitude of relative v in RF
                 double relativeVelMag = std::sqrt((relativeVelocityRf[0]*relativeVelocityRf[0]) + (relativeVelocityRf[1]*relativeVelocityRf[1]) + (relativeVelocityRf[2]*relativeVelocityRf[2]));
                 
-                //compute angle of attacks for x and y
-                double aoa_x = std::atan2(relativeVelocityRf[0], relativeVelocityRf[2]);
-                double aoa_y = std::atan2(relativeVelocityRf[1], relativeVelocityRf[2]);
-                
                 //*****COMPUTE FORCES*****
                 //force due to thrust
                 thrustRf = forceThrustRf(gimbalAngleX*DEG2RAD, gimbalAngleY*DEG2RAD, t);
                 thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
                 //aero forces
-                aerodynamicForcesRf[0] = -0.5*rho*cN*aoa_x*aRef*relativeVelMag*relativeVelMag;
-                aerodynamicForcesRf[1] = -0.5*rho*cN*aoa_y*aRef*relativeVelMag*relativeVelMag;
+                aerodynamicForcesRf[0] = -0.5*rho*cNa*aRef*relativeVelocityRf[0]*relativeVelMag;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+                aerodynamicForcesRf[1] = -0.5*rho*cNa*aRef*relativeVelocityRf[1]*relativeVelMag;
                 aerodynamicForcesRf[2] = -0.5*rho*cD*aRef*(std::abs(relativeVelocityRf[2]))*relativeVelocityRf[2]; 
                 aerodynamicForceswf = rotateRfToWf(stateQ, aerodynamicForcesRf);
             
@@ -275,12 +274,19 @@ int main(void){
                     break;
                 }
                 
+                //******COASTING*****
+                if(t > 3.45 && coastingOver != true && printedCoasted != true){
+                    std::cout << "COASTING PHASE" << std::endl;
+                    printedCoasted = true;
+                }
+
                 //*****APOGEE CHECK*****
                 currentAltitude = position[2];
                 if(currentAltitude < prevAltitude && printed != true){
                     std::cout << "APOGEE at t = " << t << "s" << std::endl; 
                     std::cout << "APOGEE ALTITUDE = " << position[2]*3.281 << "ft" << std::endl;
                     printed = true;
+                    coastingOver = true;
                 }
                 prevAltitude = currentAltitude;
             
@@ -344,7 +350,7 @@ int main(void){
 
     CloseWindow();    
 
-    //print
+    //final print
     std::cout << "Final position: (" << position[0] << "x, " << position[1] << "y, " << position[2] << "z)" << std::endl;
 
     return 0;

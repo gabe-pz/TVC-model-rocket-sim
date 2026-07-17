@@ -1,5 +1,12 @@
 #include "rocketMath.h"
 
+
+double clamp(double val, double min, double max){
+    if(val < min) return min;
+    else if(val > max) return max;
+    else return val;
+
+}
 std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec){
     std::array<double, 4> vecToQuaternion = {0.0, vec[0], vec[1], vec[2]} ;
 
@@ -48,9 +55,12 @@ std::array<double, 3> crossProduct(const std::array<double, 3>& a, const std::ar
 }
 std::array<double, 2> quaternionToEuler(const std::array<double, 4>& stateQuaternion){
 
-    std::array<double, 2> angles = {std::atan2(2*(stateQuaternion[0]*stateQuaternion[1]+stateQuaternion[2]*stateQuaternion[3]),
-         1-2*(stateQuaternion[1]*stateQuaternion[1]+stateQuaternion[2]*stateQuaternion[2])), 
-         std::asin(2*(stateQuaternion[0]*stateQuaternion[2] - stateQuaternion[1]*stateQuaternion[3]))};
+    double aSinArg = clamp(2*(stateQuaternion[0]*stateQuaternion[2] - stateQuaternion[1]*stateQuaternion[3]), -1.0, 1.0);
+
+    double aTan2Arg1 = 2*(stateQuaternion[0]*stateQuaternion[1]+stateQuaternion[2]*stateQuaternion[3]);
+    double aTan2Arg2 = 1-2*(stateQuaternion[1]*stateQuaternion[1]+stateQuaternion[2]*stateQuaternion[2]); 
+
+    std::array<double, 2> angles = {std::atan2(aTan2Arg1, aTan2Arg2), std::asin(aSinArg)};
 
     return angles;
 }
@@ -78,10 +88,4 @@ void quatToMat(const std::array<double,4>& q, float m[16]) {
     m[4]=r01; m[5]=r11; m[6]=r21; m[7]=0;  
     m[8]=r02; m[9]=r12; m[10]=r22;m[11]=0;
     m[12]=0;  m[13]=0;  m[14]=0;  m[15]=1; 
-}
-double clamp(double val, double min, double max){
-    if(val < min) return min;
-    else if(val > max) return max;
-    else return val;
-
 }
