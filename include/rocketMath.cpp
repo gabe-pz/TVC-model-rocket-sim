@@ -60,8 +60,9 @@ std::array<double, 2> quaternionToEuler(const std::array<double, 4>& stateQuater
     double aTan2Arg1 = 2*(stateQuaternion[0]*stateQuaternion[1]+stateQuaternion[2]*stateQuaternion[3]);
     double aTan2Arg2 = 1-2*(stateQuaternion[1]*stateQuaternion[1]+stateQuaternion[2]*stateQuaternion[2]); 
 
-    std::array<double, 2> angles = {std::atan2(aTan2Arg1, aTan2Arg2), std::asin(aSinArg)};
+    std::array<double, 2> angles = {std::asin(aSinArg), std::atan2(aTan2Arg1, aTan2Arg2)};
 
+    //returned as psi = (phi, theta)
     return angles;
 }
 void normalizeQuaternion(std::array<double, 4>& q){

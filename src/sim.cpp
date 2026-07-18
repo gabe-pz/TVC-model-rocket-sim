@@ -9,6 +9,9 @@
 #include "../include/rocketProperties.h"
 
 
+
+void pidControl(std::array<double, 3>& pidArray, const std::array<double, 3>& pidGains, double& error, double& prevError, double& currentServoAngle, double rocketAngle, double dt, int axis);
+
 int main(void){     
     //*****ROCKET PROPERTIES*****
     const double centerOfPressure = 0.0877;
@@ -21,23 +24,18 @@ int main(void){
 
     long double Ixx = 0.0249899588;
     long double Iyy = 0.0249868814;
-
-    //inital gimbal angles(in degrees)
-    double gimbalAngleX = 0.0;
-    double gimbalAngleY = 0.0; 
-
     
     //*****SIMULATION SETTINGS*****
-    const double dt = 0.000001; 
+    const double dt = 0.000001;
     const int simTime = 15;
     bool landed = false;
     double currentAltitude = 0.0;
     double prevAltitude = 0.0;
-    bool printed = false; 
     bool coastingOver = false;
     bool printedCoasted = false;
+    bool printedApogee = false; 
 
-    //*****WORLD THINGS***** 
+    //*****WORLD CONSTANTS***** 
     const double gravity = 9.81; 
     const float rho = 1.187f;
 
@@ -45,27 +43,14 @@ int main(void){
     double errorX, errorY;
     double prevErrorX = 0.0;
     double prevErrorY = 0.0;
-
-    double setPoint = 0.0; 
     
-    //pid gains
-    double kPy = 0.3;
-    double kIy = 0.07; 
-    double kDy = 0.1;
+    //set pid gains
+    std::array<double, 3> pidGainsX = {0.3, 0.07, 0.1};
+    std::array<double, 3> pidGainsY = {0.3, 0.07, 0.1};
 
-    double kPx = 0.3;
-    double kIx = 0.07; 
-    double kDx = 0.1;
-
-    //pid terms 
-    double pTermY = 0.0;
-    double iTermY = 0.0;
-    double dTermY = 0.0;
-
-    double pTermX = 0.0;
-    double iTermX = 0.0;
-    double dTermX = 0.0;
-
+    //initalize pid terms 
+    std::array<double, 3> pidArrayX = {0.0, 0.0, 0.0}; // (pTerm, iTerm, dTerm) 
+    std::array<double, 3> pidArrayY = {0.0, 0.0, 0.0};
 
     //*****WIND SETTINGS*****
     //wind generation constants
@@ -121,6 +106,9 @@ int main(void){
         0,0,0,1
     };
 
+    //****SERVO INITALIZATION*****
+    double currentServoX = 0.0;
+    double currentServoY = 0.0;
 
     //*******STD ARRAY INITALIZATIONS*****
     //quaterion initaliztion
@@ -146,14 +134,14 @@ int main(void){
     std::array<double, 3> relativeVelocityWf = {0.0, 0.0, 0.0};
     std::array<double, 3> relativeVelocityRf = {0.0, 0.0, 0.0};
 
-    //rotation and its derivatives initalization. Note psi = (theta, phi)
+    //rotation and its derivatives initalization. Note psi = (phi, theta)
     std::array<double, 3> angularAccleration = {0.0, 0.0, 0.0};
     std::array<double, 3> angularVelocity = {0.0, 0.0, 0.0};
     std::array<double, 2> psi = {0.0, 0.0};
     
     //moment arms
     std::array<double, 3> r = {0.0, 0.0, centerOfGravity-distanceToThrustVector};
-    std::array<double, 3> r_aero = {0.0, 0.0, centerOfGravity-centerOfPressure};
+    std::array<double, 3> rAero = {0.0, 0.0, centerOfGravity-centerOfPressure};
 
     //wind initalization
     std::array<double, 3> windVelocityWf = {0.0, 0.0, 0.0};
@@ -167,23 +155,8 @@ int main(void){
                 t += dt;
                 
                 //******PID CONTROL*****
-                errorY = setPoint - RAD2DEG*psi[0]; 
-                errorX = setPoint - RAD2DEG*psi[1];
-                
-                pTermY = kPy*errorY; 
-                iTermY += dt*kIy*errorY;
-                dTermY = kDy*((errorY - prevErrorY) / dt);
-
-                pTermX = kPx*errorX; 
-                iTermX += dt*kIx*errorX;
-                dTermX = kDx*((errorX - prevErrorX) / dt);
-                
-                prevErrorY = errorY;
-                prevErrorX = errorX;
-                
-                gimbalAngleY = clamp(pTermY+iTermY+dTermY, -5.0, 5.0);
-                gimbalAngleX = clamp(-(pTermX+iTermX+dTermX), -5.0, 5.0);
-
+                pidControl(pidArrayX, pidGainsX, errorX, prevErrorX, currentServoX, psi[0], dt, 0);
+                pidControl(pidArrayY, pidGainsY, errorY, prevErrorY, currentServoY, psi[1], dt, 1);
 
                 //*****WIND*****
                 //sampling three independent turbulence streams at time t
@@ -205,10 +178,10 @@ int main(void){
                 
                 //*****COMPUTE FORCES*****
                 //force due to thrust
-                thrustRf = forceThrustRf(gimbalAngleX*DEG2RAD, gimbalAngleY*DEG2RAD, t);
+                thrustRf = forceThrustRf(currentServoX*DEG2RAD, currentServoY*DEG2RAD, t);
                 thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
-                //aero forces
+                //aero forces. Note for normal force throw the negative on there to account for the fact want to use the free-stream velocity
                 aerodynamicForcesRf[0] = -0.5*rho*cNa*aRef*relativeVelocityRf[0]*relativeVelMag;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
                 aerodynamicForcesRf[1] = -0.5*rho*cNa*aRef*relativeVelocityRf[1]*relativeVelMag;
                 aerodynamicForcesRf[2] = -0.5*rho*cD*aRef*(std::abs(relativeVelocityRf[2]))*relativeVelocityRf[2]; 
@@ -236,7 +209,7 @@ int main(void){
                 //****GET ROATION THROUGH ITS DERIVATIVES*****
                 //compute torques   
                 torqueThrust = crossProduct(r, thrustRf);
-                torqueAero = crossProduct(r_aero, aerodynamicForcesRf);
+                torqueAero = crossProduct(rAero, aerodynamicForcesRf);
 
                 //compute angular accleration
                 angularAccleration[0] = ((torqueThrust[0] + torqueAero[0]) / Ixx);
@@ -282,10 +255,10 @@ int main(void){
 
                 //*****APOGEE CHECK*****
                 currentAltitude = position[2];
-                if(currentAltitude < prevAltitude && printed != true){
+                if(currentAltitude < prevAltitude && printedApogee != true){
                     std::cout << "APOGEE at t = " << t << "s" << std::endl; 
                     std::cout << "APOGEE ALTITUDE = " << position[2]*3.281 << "ft" << std::endl;
-                    printed = true;
+                    printedApogee = true;
                     coastingOver = true;
                 }
                 prevAltitude = currentAltitude;
@@ -325,7 +298,7 @@ int main(void){
                     rlTranslatef(0.0f, -cgFrac * bodyHeight, 0.0f);
                     
                     //main rocket body
-                    DrawCylinder((Vector3){0,0,0}, bodyRadius, bodyRadius, bodyHeight, 64, BLUE);
+                    DrawCylinder((Vector3){0,0,0}, bodyRadius, bodyRadius, bodyHeight, 64, BLACK);
 
                     //nose cone
                     rlPushMatrix();
@@ -354,4 +327,35 @@ int main(void){
     std::cout << "Final position: (" << position[0] << "x, " << position[1] << "y, " << position[2] << "z)" << std::endl;
 
     return 0;
+}
+
+
+void pidControl(std::array<double, 3>& pidArray, const std::array<double, 3>& pidGains, double& error, double& prevError, double& currentServoAngle, double rocketAngle, double dt, int axis){
+    
+    const double maxRate = 500.0; // max angular v of servos using(degrees/sec)
+    const double setPoint = 0.0;
+    double desiredAngle;
+    
+    //******PID CONTROL*****
+    error = setPoint - RAD2DEG*rocketAngle; 
+    
+    pidArray[0] = pidGains[0]*error; 
+    pidArray[1] += dt*pidGains[1]*error;
+    pidArray[2] = pidGains[2]*((error - prevError) / dt);
+
+    prevError = error;
+
+    //computing angles need to move to
+    if(axis == 0){ 
+        desiredAngle = clamp(-(pidArray[0]+pidArray[1]+pidArray[2]), -5.0, 5.0);
+    }
+    else{
+        desiredAngle = clamp(pidArray[0]+pidArray[1]+pidArray[2], -5.0, 5.0);
+    }
+
+    //d(theta) = omega*dt, this is the max amount of angular movement servo can do in dt
+    double maxUpdate = maxRate*dt; 
+    
+    //make the servos angle update toward the value want to move to and the rate at which it can do it
+    currentServoAngle += clamp(desiredAngle - currentServoAngle, -maxUpdate, maxUpdate);
 }
