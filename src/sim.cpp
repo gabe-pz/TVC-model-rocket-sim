@@ -8,6 +8,7 @@
 #include "../include/rocketMath.h"
 #include "../include/rocketProperties.h"
 #include "../include/control.h"
+#include "../include/log.h"
 
 int main(void){     
     //*****ROCKET PROPERTIES*****
@@ -25,6 +26,14 @@ int main(void){
     //*****SIMULATION SETTINGS*****
     const double dt = 0.000001;
     const int simTime = 15;
+
+    //*****LOGGING*****
+    double logInterval = 0.01; 
+    double timeSinceLastLog = logInterval; 
+    initCSV("logging/dataRotX.csv", 0);
+    initCSV("logging/dataRotY.csv", 1);
+
+    //*****STATE CHECKS*****
     bool landed = false;
     double currentAltitude = 0.0;
     double prevAltitude = 0.0;
@@ -43,14 +52,16 @@ int main(void){
     double prevErrorX = 0.0;
     double prevErrorY = 0.0;
     
-    //physical limits and run times 
+    //speed to run control at
     const double controlDt = 0.0001;
     double timeSinceLastControl = controlDt; //start here such that have control on first run
-    const double maxRate = 300.0;         
+
+    //max angular v, in deg/sec for servos
+    const double maxRate = 250.0;         
 
     //set pid gains
-    std::array<double, 3> pidGainsX = {0.3, 0.07, 0.1};
-    std::array<double, 3> pidGainsY = {0.3, 0.07, 0.1};
+    std::array<double, 3> pidGainsX = {0.65, 0.1, 0.1};
+    std::array<double, 3> pidGainsY = {0.5, 0.08, 0.1};
 
     //initalize pid terms 
     std::array<double, 3> pidArrayX = {0.0, 0.0, 0.0}; // (pTerm, iTerm, dTerm) 
@@ -273,6 +284,14 @@ int main(void){
                     coastingOver = true;
                 }
                 prevAltitude = currentAltitude;
+
+                //*****LOGGING*****
+                timeSinceLastLog += dt;
+                if(timeSinceLastLog >= logInterval){
+                    logToCSV(t, rad2deg(psi[0]), "logging/dataRotX.csv");
+                    logToCSV(t, rad2deg(psi[1]), "logging/dataRotY.csv");
+                    timeSinceLastLog = 0.0; 
+                }
             
             }
         }

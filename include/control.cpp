@@ -25,7 +25,6 @@ void slewServo(double& currentServoAngle, double desiredAngle, double maxRate, d
     //d(theta) = omega*dt, max angular movement servo can do in dt
     double maxUpdate = maxRate*dt;
 
-    //essentially is breaking the movement up to where it needs to go into small steps it can take to get there
-    //where those steps are characterized by the max angular v of the servos
+    //essentially moving to desired angle within steps, and ensuring that each step is within the physical limits
     currentServoAngle += clamp(desiredAngle - currentServoAngle, -maxUpdate, maxUpdate);
 }
