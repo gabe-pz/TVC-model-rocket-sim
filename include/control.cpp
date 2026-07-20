@@ -24,5 +24,8 @@ void pidControl(std::array<double, 3>& pidArray, const std::array<double, 3>& pi
 void slewServo(double& currentServoAngle, double desiredAngle, double maxRate, double dt){
     //d(theta) = omega*dt, max angular movement servo can do in dt
     double maxUpdate = maxRate*dt;
+
+    //essentially is breaking the movement up to where it needs to go into small steps it can take to get there
+    //where those steps are characterized by the max angular v of the servos
     currentServoAngle += clamp(desiredAngle - currentServoAngle, -maxUpdate, maxUpdate);
 }

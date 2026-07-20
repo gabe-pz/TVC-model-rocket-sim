@@ -163,7 +163,7 @@ int main(void){
                 if(timeSinceLastControl >= controlDt){
                     pidControl(pidArrayX, pidGainsX, prevErrorX, desiredX, psi[0], controlDt, 0);
                     pidControl(pidArrayY, pidGainsY, prevErrorY, desiredY, psi[1], controlDt, 1);
-                    timeSinceLastControl = timeSinceLastControl - controlDt; //go back one period
+                    timeSinceLastControl = 0.0; //go back one period
                 }
 
                 slewServo(currentServoX, desiredX, maxRate, dt);
