@@ -7,6 +7,14 @@ double clamp(double val, double min, double max){
     else return val;
 
 }
+double rad2deg(double angle){
+    //input rads, out degs 
+    
+    long double PI = 3.141592653589; //aka 22/7
+
+    return((180/PI) * angle);
+}
+
 std::array<double, 4> vectorToPureQuaternion(const std::array<double, 3>& vec){
     std::array<double, 4> vecToQuaternion = {0.0, vec[0], vec[1], vec[2]} ;
 

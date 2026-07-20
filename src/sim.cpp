@@ -7,10 +7,7 @@
 #include "../include/windGeneration.h" 
 #include "../include/rocketMath.h"
 #include "../include/rocketProperties.h"
-
-
-
-void pidControl(std::array<double, 3>& pidArray, const std::array<double, 3>& pidGains, double& error, double& prevError, double& currentServoAngle, double rocketAngle, double dt, int axis);
+#include "../include/control.h"
 
 int main(void){     
     //*****ROCKET PROPERTIES*****
@@ -40,10 +37,17 @@ int main(void){
     const float rho = 1.187f;
 
     //****PID SETTINGS*****
-    double errorX, errorY;
+    //error and control
+    double desiredX = 0.0;
+    double desiredY = 0.0;
     double prevErrorX = 0.0;
     double prevErrorY = 0.0;
     
+    //physical limits and run times 
+    const double controlDt = 0.0001;
+    double timeSinceLastControl = controlDt; //start here such that have control on first run
+    const double maxRate = 300.0;         
+
     //set pid gains
     std::array<double, 3> pidGainsX = {0.3, 0.07, 0.1};
     std::array<double, 3> pidGainsY = {0.3, 0.07, 0.1};
@@ -153,10 +157,17 @@ int main(void){
             //state update
             for(int i = 0; i < iterationsPerFrame; i++){
                 t += dt;
-                
+                timeSinceLastControl += dt; 
+
                 //******PID CONTROL*****
-                pidControl(pidArrayX, pidGainsX, errorX, prevErrorX, currentServoX, psi[0], dt, 0);
-                pidControl(pidArrayY, pidGainsY, errorY, prevErrorY, currentServoY, psi[1], dt, 1);
+                if(timeSinceLastControl >= controlDt){
+                    pidControl(pidArrayX, pidGainsX, prevErrorX, desiredX, psi[0], controlDt, 0);
+                    pidControl(pidArrayY, pidGainsY, prevErrorY, desiredY, psi[1], controlDt, 1);
+                    timeSinceLastControl = timeSinceLastControl - controlDt; //go back one period
+                }
+
+                slewServo(currentServoX, desiredX, maxRate, dt);
+                slewServo(currentServoY, desiredY, maxRate, dt);
 
                 //*****WIND*****
                 //sampling three independent turbulence streams at time t
@@ -327,35 +338,4 @@ int main(void){
     std::cout << "Final position: (" << position[0] << "x, " << position[1] << "y, " << position[2] << "z)" << std::endl;
 
     return 0;
-}
-
-
-void pidControl(std::array<double, 3>& pidArray, const std::array<double, 3>& pidGains, double& error, double& prevError, double& currentServoAngle, double rocketAngle, double dt, int axis){
-    
-    const double maxRate = 500.0; // max angular v of servos using(degrees/sec)
-    const double setPoint = 0.0;
-    double desiredAngle;
-    
-    //******PID CONTROL*****
-    error = setPoint - RAD2DEG*rocketAngle; 
-    
-    pidArray[0] = pidGains[0]*error; 
-    pidArray[1] += dt*pidGains[1]*error;
-    pidArray[2] = pidGains[2]*((error - prevError) / dt);
-
-    prevError = error;
-
-    //computing angles need to move to
-    if(axis == 0){ 
-        desiredAngle = clamp(-(pidArray[0]+pidArray[1]+pidArray[2]), -5.0, 5.0);
-    }
-    else{
-        desiredAngle = clamp(pidArray[0]+pidArray[1]+pidArray[2], -5.0, 5.0);
-    }
-
-    //d(theta) = omega*dt, this is the max amount of angular movement servo can do in dt
-    double maxUpdate = maxRate*dt; 
-    
-    //make the servos angle update toward the value want to move to and the rate at which it can do it
-    currentServoAngle += clamp(desiredAngle - currentServoAngle, -maxUpdate, maxUpdate);
 }
