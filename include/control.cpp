@@ -5,8 +5,14 @@ void pidControl(std::array<double, 3>& pidArray, const std::array<double, 3>& pi
     const double maxOut = 5.0;
     double error = setPoint - rad2deg(rocketAngle); 
     
+    //p
     double pTerm = pidGains[0]*error; 
-    double iTerm = clamp(pidArray[1] + dt*pidGains[1]*error, -maxOut, maxOut);
+
+    //i
+    pidArray[1] =  clamp(pidArray[1] + dt*pidGains[1]*error, -5.0, 5.0); //write to pidArray iTerm
+    double iTerm = pidArray[1]; //update iTerm to be used in total output
+
+    //d
     double dTerm = pidGains[2]*((error - prevError) / dt);
 
     double output = pTerm+iTerm+dTerm;

@@ -1,4 +1,5 @@
 #include <iostream>
+#include <random> 
 #include <array>
 #include <cmath> 
 #include <raylib.h> 
@@ -12,60 +13,26 @@
 
 int main(void){     
     //*****ROCKET PROPERTIES*****
+    
+    //aerodynamic constants
     const double centerOfPressure = 0.0877;
     const double aRef = 0.00456; 
     const double cD = 0.291;
     const int cNa = 2;
+    const float rho = 1.187f;
 
-    double centerOfGravity = 0.405;
+    //cg and moment arm
+    const double centerOfGravity = 0.405;
     const double distanceToThrustVector = 0.6477;
 
+    //moment of inertia
     long double Ixx = 0.0249899588;
     long double Iyy = 0.0249868814;
     
     //*****SIMULATION SETTINGS*****
     const double dt = 0.000001;
     const int simTime = 15;
-
-    //*****LOGGING*****
-    double logInterval = 0.01; 
-    double timeSinceLastLog = logInterval; 
-    initCSV("logging/dataRotX.csv", 0);
-    initCSV("logging/dataRotY.csv", 1);
-
-    //*****STATE CHECKS*****
-    bool landed = false;
-    double currentAltitude = 0.0;
-    double prevAltitude = 0.0;
-    bool coastingOver = false;
-    bool printedCoasted = false;
-    bool printedApogee = false; 
-
-    //*****WORLD CONSTANTS***** 
-    const double gravity = 9.81; 
-    const float rho = 1.187f;
-
-    //****PID SETTINGS*****
-    //error and control
-    double desiredX = 0.0;
-    double desiredY = 0.0;
-    double prevErrorX = 0.0;
-    double prevErrorY = 0.0;
-    
-    //speed to run control at
-    const double controlDt = 0.0001;
-    double timeSinceLastControl = controlDt; //start here such that have control on first run
-
-    //max angular v, in deg/sec for servos
-    const double maxRate = 250.0;         
-
-    //set pid gains
-    std::array<double, 3> pidGainsX = {0.65, 0.1, 0.1};
-    std::array<double, 3> pidGainsY = {0.5, 0.08, 0.1};
-
-    //initalize pid terms 
-    std::array<double, 3> pidArrayX = {0.0, 0.0, 0.0}; // (pTerm, iTerm, dTerm) 
-    std::array<double, 3> pidArrayY = {0.0, 0.0, 0.0};
+    const double gravity = 9.81;  
 
     //*****WIND SETTINGS*****
     //wind generation constants
@@ -85,7 +52,57 @@ int main(void){
     double ux = std::cos(theta);
     double uy = std::sin(theta);
 
+    //*****LOGGING*****
+    double logInterval = 0.01; 
+    double timeSinceLastLog = logInterval; 
+    initCSV("logging/dataRotX.csv", 0);
+    initCSV("logging/dataRotY.csv", 1);
+
+    //*****STATE CHECKS VARS*****
+    double currentAltitude = 0.0;
+    double prevAltitude = 0.0;
+    bool landed = false;
+    bool coastingOver = false;
+    bool printedCoasted = false;
+    bool printedApogee = false; 
+
+    //****PID SETTINGS*****
+    //control vars
+    double desiredX = 0.0;
+    double desiredY = 0.0;
+    double prevErrorX = 0.0;
+    double prevErrorY = 0.0;
+    
+    //servo position init
+    double currentServoX = 0.0;
+    double currentServoY = 0.0;
+
+    //servos offsets 
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dist(0.5f, 1.0f);//misalignment between 0.5 and 1 degree
+    
+    float servosXOffset = dist(gen);
+    float servosYOffset = dist(gen);
+
+    //speed to run control at
+    const double controlDt = 0.0001; 
+    double timeSinceLastControl = controlDt; //start here such that have control on first run
+
+    //max angular v(deg/sec) for servos
+    const double maxRate = 250.0;         
+
+    //pid gains
+    std::array<double, 3> pidGainsX = {1, 0.3, 0.15}; //(pGain, iGain, dGain)
+    std::array<double, 3> pidGainsY = {1, 0.3, 0.1};
+
+    //initalize pid terms 
+    std::array<double, 3> pidArrayX = {0.0, 0.0, 0.0}; // (pTerm, iTerm, dTerm) 
+    std::array<double, 3> pidArrayY = {0.0, 0.0, 0.0};
+
+
     //*****RAYLIB INITALIZATION*****
+    //viewing screen
     const int screenWidth  = 1800;
     const int screenHeight = 1200;
     InitWindow(screenWidth, screenHeight, "tvc-model-rocket-sim");
@@ -121,10 +138,6 @@ int main(void){
         0,0,0,1
     };
 
-    //****SERVO INITALIZATION*****
-    double currentServoX = 0.0;
-    double currentServoY = 0.0;
-
     //*******STD ARRAY INITALIZATIONS*****
     //quaterion initaliztion
     std::array<double, 4> stateQ = {1.0, 0.0, 0.0, 0.0};
@@ -158,10 +171,9 @@ int main(void){
     std::array<double, 3> r = {0.0, 0.0, centerOfGravity-distanceToThrustVector};
     std::array<double, 3> rAero = {0.0, 0.0, centerOfGravity-centerOfPressure};
 
-    //wind initalization
+    //wind velocity initalization
     std::array<double, 3> windVelocityWf = {0.0, 0.0, 0.0};
-
-    //main physics loop
+   
     while (!WindowShouldClose()){
 
         if(!landed){
@@ -170,7 +182,7 @@ int main(void){
                 t += dt;
                 timeSinceLastControl += dt; 
 
-                //******PID CONTROL*****
+                //******PID CONTROL*****z
                 if(timeSinceLastControl >= controlDt){
                     pidControl(pidArrayX, pidGainsX, prevErrorX, desiredX, psi[0], controlDt, 0);
                     pidControl(pidArrayY, pidGainsY, prevErrorY, desiredY, psi[1], controlDt, 1);
@@ -200,7 +212,7 @@ int main(void){
                 
                 //*****COMPUTE FORCES*****
                 //force due to thrust
-                thrustRf = forceThrustRf(currentServoX*DEG2RAD, currentServoY*DEG2RAD, t);
+                thrustRf = forceThrustRf((currentServoX+servosXOffset)*DEG2RAD, (currentServoY+servosYOffset)*DEG2RAD, t);
                 thrustWf = rotateRfToWf(stateQ, thrustRf); 
 
                 //aero forces. Note for normal force throw the negative on there to account for the fact want to use the free-stream velocity
